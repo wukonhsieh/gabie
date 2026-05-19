@@ -19,6 +19,11 @@ export interface ThinkingStrategy {
 }
 
 const THINKING_STRATEGIES: Record<string, ThinkingStrategy> = {
+  'mlx-community/gemma-4-e2b-it-4bit': {
+    trigger: { kind: 'system-token', token: '<|think|>' },
+    parser: { kind: 'reasoning-field' },
+    recommendedMaxTokens: 8192
+  },
   'mlx-community/gemma-4-e4b-it-4bit': {
     trigger: { kind: 'system-token', token: '<|think|>' },
     parser: { kind: 'reasoning-field' },
