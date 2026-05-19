@@ -52,6 +52,7 @@ import {
 import { scanAllSkills, type ScopeEntry } from './skills/scanner'
 import { writeSkillArtifacts, buildSkillCatalogFromIndex } from './skills/indexer'
 import { detectSkillInvocation } from './skills/detector'
+import { stripThinkingFromContent } from './skills/thinking-strategies'
 import { loadSkill, type LoadedSkillsRegistry } from './skills/loader'
 import type { SkillIndex } from './skills/types'
 import {
@@ -486,7 +487,8 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
     for (let i = 0; i < req.messages.length; i++) {
       const m = req.messages[i]
       const isLastUser = i === lastUserIdx && rewrittenLastUserContent !== null
-      const content = isLastUser ? rewrittenLastUserContent! : m.content
+      const rawContent = isLastUser ? rewrittenLastUserContent! : m.content
+      const content = m.role === 'assistant' ? stripThinkingFromContent(rawContent) : rawContent
       baseMessages.push({ role: m.role as MLXChatMessage['role'], content })
       if (m.toolCalls) {
         for (const tc of m.toolCalls) {

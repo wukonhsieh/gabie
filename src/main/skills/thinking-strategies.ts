@@ -29,3 +29,15 @@ const THINKING_STRATEGIES: Record<string, ThinkingStrategy> = {
 export function getThinkingStrategy(model: string): ThinkingStrategy | null {
   return THINKING_STRATEGIES[model] ?? null
 }
+
+// Strip <think>...</think> / <thinking>...</thinking> blocks from assistant
+// content before replaying conversation history to the model. Gemma 4's prompt
+// formatting docs explicitly recommend not feeding past thinking back: it bloats
+// context and biases future reasoning. Also handles unclosed tags from aborted
+// streams so we never replay a half-open block.
+const THINKING_BLOCK_RE = /<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g
+const UNCLOSED_THINKING_RE = /<think(?:ing)?>[\s\S]*$/
+
+export function stripThinkingFromContent(content: string): string {
+  return content.replace(THINKING_BLOCK_RE, '').replace(UNCLOSED_THINKING_RE, '').trim()
+}
