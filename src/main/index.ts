@@ -594,7 +594,8 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
       streamLoop: for await (const chunk of chatStream({
         model: req.model,
         messages: baseMessages,
-        signal: abort.signal
+        signal: abort.signal,
+        enableThinking: skillInjection !== null
       })) {
         if (chunk.content) {
           if (firstToken) {

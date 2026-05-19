@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { spawn, ChildProcess, spawnSync } from 'child_process'
 import { join } from 'path'
 import { existsSync, rmSync } from 'fs'
+import { getThinkingStrategy } from './skills/thinking-strategies'
 
 const MLX_PORT = 11434
 const MLX_HOST = `127.0.0.1:${MLX_PORT}`
@@ -437,23 +438,44 @@ export interface MLXChatOptions {
   messages: MLXChatMessage[]
   signal?: AbortSignal
   temperature?: number
+  /**
+   * Enable reasoning/thinking mode if the current model has a registered
+   * strategy. No-op when the model is not in THINKING_STRATEGIES — callers can
+   * pass this opportunistically without checking model support.
+   */
+  enableThinking?: boolean
 }
 
 export async function* chatStream(
   opts: MLXChatOptions
 ): AsyncGenerator<{ content?: string; done?: boolean }> {
+  const strategy = opts.enableThinking ? getThinkingStrategy(opts.model) : null
+
+  let messages = opts.messages.map((m) => ({ role: m.role, content: m.content }))
+  const extraBody: Record<string, unknown> = {}
+  let maxTokens = 8192
+
+  if (strategy) {
+    if (strategy.trigger.kind === 'system-token') {
+      messages = [{ role: 'system', content: strategy.trigger.token }, ...messages]
+    } else if (strategy.trigger.kind === 'template-kwarg') {
+      extraBody.chat_template_kwargs = { [strategy.trigger.key]: true }
+    }
+    if (strategy.recommendedMaxTokens && strategy.recommendedMaxTokens > maxTokens) {
+      maxTokens = strategy.recommendedMaxTokens
+    }
+  }
+
   const res = await fetch(`${MLX_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       model: opts.model,
-      messages: opts.messages.map((m) => ({
-        role: m.role,
-        content: m.content
-      })),
+      messages,
       stream: true,
       temperature: opts.temperature ?? 0.7,
-      max_tokens: 8192
+      max_tokens: maxTokens,
+      ...extraBody
     }),
     signal: opts.signal
   })
@@ -464,30 +486,57 @@ export async function* chatStream(
   }
 
   // Parse SSE stream (OpenAI format: "data: {...}\n\n")
+  const wrapReasoning = strategy?.parser.kind === 'reasoning-field'
+  let reasoningOpen = false
   const stream = res.body as unknown as ReadableStream<Uint8Array>
   for await (const event of readSSE(stream)) {
     if (event === '[DONE]') {
+      if (reasoningOpen) {
+        yield { content: '</think>\n' }
+        reasoningOpen = false
+      }
       yield { done: true }
       return
     }
     try {
       const parsed = JSON.parse(event) as {
         choices?: Array<{
-          delta?: { content?: string; role?: string }
+          delta?: { content?: string; reasoning?: string; role?: string }
           finish_reason?: string | null
         }>
       }
       const choice = parsed.choices?.[0]
-      if (choice?.delta?.content) {
-        yield { content: choice.delta.content }
+      const reasoningChunk = choice?.delta?.reasoning
+      const contentChunk = choice?.delta?.content
+
+      if (wrapReasoning && reasoningChunk) {
+        if (!reasoningOpen) {
+          yield { content: '<think>' }
+          reasoningOpen = true
+        }
+        yield { content: reasoningChunk }
+      }
+      if (contentChunk) {
+        if (reasoningOpen) {
+          yield { content: '</think>\n' }
+          reasoningOpen = false
+        }
+        yield { content: contentChunk }
       }
       if (choice?.finish_reason === 'stop' || choice?.finish_reason === 'length') {
+        if (reasoningOpen) {
+          yield { content: '</think>\n' }
+          reasoningOpen = false
+        }
         yield { done: true }
         return
       }
     } catch {
       // Skip malformed events
     }
+  }
+  if (reasoningOpen) {
+    yield { content: '</think>\n' }
   }
   yield { done: true }
 }
