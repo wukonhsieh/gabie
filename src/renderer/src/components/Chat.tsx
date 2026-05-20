@@ -80,6 +80,11 @@ function ChatInner({
   const [activeId, setActiveId] = useState<string>(initialActiveId)
   const [streaming, setStreaming] = useState(false)
   const streamRef = useRef<{ abort: boolean }>({ abort: false })
+  const [thinking, setThinking] = useState(false)
+
+  const modelInfo = AVAILABLE_MODELS.find((m) => m.name === model)
+  const thinkingAlwaysOn = modelInfo?.thinkingSupport === 'always-on'
+  const thinkingAvailable = modelInfo?.thinkingSupport !== undefined
 
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -369,7 +374,8 @@ function ChatInner({
           model,
           enableTools: true,
           mode: conv.mode,
-          workspacePath: conv.projectPath
+          workspacePath: conv.projectPath,
+          enableThinking: thinkingAlwaysOn || thinking
         },
         (chunk: StreamChunk) => {
           if (streamRef.current.abort) return
@@ -588,6 +594,10 @@ function ChatInner({
                 ? 'Describe what to build — a webpage, component, or script…'
                 : 'Message Gemma…'
             }
+            thinking={thinking}
+            onThinkingChange={setThinking}
+            thinkingAlwaysOn={thinkingAlwaysOn}
+            thinkingAvailable={thinkingAvailable}
           />
         </div>
         {canvasVisible && (

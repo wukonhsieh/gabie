@@ -85,6 +85,7 @@ export interface ChatRequest {
   mode: AgentMode
   workspacePath?: string
   toolPermissions?: Partial<Record<string, ToolPermissionMode>>
+  enableThinking?: boolean
 }
 
 export interface WorkspaceInfo {
@@ -150,6 +151,8 @@ export interface ModelInfo {
   sizeBytes: number
   description: string
   recommended?: boolean
+  /** How this model activates reasoning. Absent means unsupported. */
+  thinkingSupport?: 'system-token' | 'always-on'
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
@@ -158,7 +161,8 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     label: 'Gemma 4 E2B',
     size: '1.5 GB',
     sizeBytes: 1_500_000_000,
-    description: 'Edge-sized. Fast & lightweight. Text + image + audio. Runs on 8GB+ Macs.'
+    description: 'Edge-sized. Fast & lightweight. Text + image + audio. Runs on 8GB+ Macs.',
+    thinkingSupport: 'system-token'
   },
   {
     name: 'mlx-community/gemma-4-e4b-it-4bit',
@@ -166,7 +170,8 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     size: '3 GB',
     sizeBytes: 3_000_000_000,
     description: 'Best all-rounder. Text + image + audio. Runs on 8GB+ Macs.',
-    recommended: true
+    recommended: true,
+    thinkingSupport: 'system-token'
   },
   // {
   //   name: 'mlx-community/gemma-4-26b-a4b-it-4bit',
@@ -180,7 +185,8 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     label: 'Gemma 4 27B MoE',
     size: '15 GB',
     sizeBytes: 15_000_000_000,
-    description: 'Mixture-of-Experts (26B, 4B active). 16GB+ RAM recommended.'
+    description: 'Mixture-of-Experts (26B, 4B active). 16GB+ RAM recommended.',
+    thinkingSupport: 'always-on'
   },
   // {
   //   name: 'mlx-community/gemma-4-31b-it-4bit',
@@ -194,7 +200,8 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     label: 'Gemma 4 31B',
     size: '22 GB',
     sizeBytes: 22_000_000_000,
-    description: 'Frontier dense model. Best quality. 32GB+ RAM recommended.'
+    description: 'Frontier dense model. Best quality. 32GB+ RAM recommended.',
+    thinkingSupport: 'always-on'
   },
 ]
 

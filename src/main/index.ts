@@ -597,7 +597,7 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
         model: req.model,
         messages: baseMessages,
         signal: abort.signal,
-        enableThinking: skillInjection !== null
+        enableThinking: skillInjection !== null || req.enableThinking === true
       })) {
         if (chunk.content) {
           if (firstToken) {

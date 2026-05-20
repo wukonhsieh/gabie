@@ -8,6 +8,10 @@ interface Props {
   disabled: boolean
   placeholder?: string
   model: string
+  thinking: boolean
+  onThinkingChange: (v: boolean) => void
+  thinkingAlwaysOn: boolean
+  thinkingAvailable: boolean
 }
 
 type RecState = 'idle' | 'recording' | 'loading-model' | 'transcribing'
@@ -18,7 +22,11 @@ export default function Composer({
   streaming,
   disabled,
   placeholder,
-  model: _model
+  model: _model,
+  thinking,
+  onThinkingChange,
+  thinkingAlwaysOn,
+  thinkingAvailable
 }: Props) {
   const [text, setText] = useState('')
   const [recState, setRecState] = useState<RecState>('idle')
@@ -206,24 +214,42 @@ export default function Composer({
             </button>
           )}
         </div>
-        <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-ink-400">
-          {recordError ? (
-            <span className="text-red-400/90">{recordError}</span>
-          ) : recState === 'recording' ? (
-            <span>Click mic again to stop.</span>
-          ) : recState === 'loading-model' ? (
-            modelProgress ? (
-              <span className="shimmer-text">
-                Downloading Whisper model… {Math.round((modelProgress.pct ?? 0))}%
-              </span>
-            ) : (
-              <span className="shimmer-text">Loading Whisper…</span>
-            )
-          ) : recState === 'transcribing' ? (
-            <span className="shimmer-text">Transcribing locally…</span>
-          ) : (
-            <span>Enter to send · Shift+Enter for newline · mic for voice</span>
+        <div className="mt-2 flex items-center gap-3 text-[11px] text-ink-400">
+          {thinkingAvailable && (
+            <label
+              className={`flex items-center gap-1.5 select-none ${thinkingAlwaysOn ? 'cursor-default opacity-60' : 'cursor-pointer hover:text-ink-200'}`}
+              title={thinkingAlwaysOn ? 'This model always uses extended thinking' : undefined}
+            >
+              <input
+                type="checkbox"
+                checked={thinkingAlwaysOn || thinking}
+                disabled={thinkingAlwaysOn}
+                onChange={(e) => !thinkingAlwaysOn && onThinkingChange(e.target.checked)}
+                className="h-3 w-3 accent-white/70"
+              />
+              Thinking
+            </label>
           )}
+          <span className="flex-1 text-center">
+            {recordError ? (
+              <span className="text-red-400/90">{recordError}</span>
+            ) : recState === 'recording' ? (
+              <span>Click mic again to stop.</span>
+            ) : recState === 'loading-model' ? (
+              modelProgress ? (
+                <span className="shimmer-text">
+                  Downloading Whisper model… {Math.round((modelProgress.pct ?? 0))}%
+                </span>
+              ) : (
+                <span className="shimmer-text">Loading Whisper…</span>
+              )
+            ) : recState === 'transcribing' ? (
+              <span className="shimmer-text">Transcribing locally…</span>
+            ) : (
+              <span>Enter to send · Shift+Enter for newline · mic for voice</span>
+            )}
+          </span>
+          {thinkingAvailable && <span className="w-[60px] shrink-0" />}
         </div>
       </div>
     </div>
