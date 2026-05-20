@@ -8,8 +8,23 @@ const MLX_PORT = 11434
 const MLX_HOST = `127.0.0.1:${MLX_PORT}`
 const MLX_URL = `http://${MLX_HOST}`
 
+type MLXServerKind = 'vlm' | 'lm'
+
 let serverProc: ChildProcess | null = null
 let currentModel: string | null = null
+let currentServerKind: MLXServerKind | null = null
+
+export function getServerKindForModel(model: string): MLXServerKind {
+  const normalized = model.toLowerCase()
+  if (normalized.includes('gemma-4-26b') || normalized.includes('gemma-4-31b')) {
+    return 'lm'
+  }
+  return 'vlm'
+}
+
+function serverModuleForKind(kind: MLXServerKind): string {
+  return kind === 'lm' ? 'mlx_lm.server' : 'mlx_vlm.server'
+}
 
 // ---------------------------------------------------------------------------
 // Paths — everything lives under <appData>/mlx/
@@ -107,18 +122,37 @@ function findSystemPython(): string | null {
 // ---------------------------------------------------------------------------
 
 export interface MLXStatus {
-  /** Python to use for running mlx_vlm (venv python if installed, system python otherwise) */
+  /** Python to use for running MLX servers (venv python if installed, system python otherwise) */
   python: string
-  /** Whether mlx-vlm is installed and importable */
+  /** Whether required MLX packages are installed */
   installed: boolean
 }
 
+function hasRequiredMLXPackages(python: string): boolean {
+  try {
+    const check = spawnSync(python, [
+      '-c',
+      [
+        'import importlib.util',
+        'missing = [name for name in ("mlx_vlm", "mlx_lm") if importlib.util.find_spec(name) is None]',
+        'raise SystemExit(1 if missing else 0)'
+      ].join('; ')
+    ], {
+      timeout: 15000,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    return check.status === 0
+  } catch {
+    return false
+  }
+}
+
 /**
- * Check if mlx-vlm is ready to use.
- * Returns the python path to use and whether mlx_vlm is installed.
+ * Check if the required MLX packages are ready to use.
+ * Returns the python path to use and whether mlx_vlm / mlx_lm are installed.
  */
 export function locateMLX(): MLXStatus | null {
-  // 1. Check if we have a working venv with mlx_vlm installed
+  // 1. Check if we have a working venv with required MLX packages installed
   const vPy = venvPython()
   if (existsSync(vPy)) {
     // Verify the venv Python is 3.10+ — older versions can't run modern mlx-vlm
@@ -135,21 +169,12 @@ export function locateMLX(): MLXStatus | null {
         try { rmSync(venvDir(), { recursive: true, force: true }) } catch { /* ok */ }
         // Fall through to system python detection below
       } else {
-        // Venv Python is compatible — check if mlx_vlm is installed
-        try {
-          const check = spawnSync(vPy, ['-c', 'import mlx_vlm; print("ok")'], {
-            timeout: 15000,
-            stdio: ['ignore', 'pipe', 'pipe']
-          })
-          const stdout = check.stdout?.toString().trim() || ''
-          if (check.status === 0 && stdout.includes('ok')) {
-            console.log('[mlx] Found mlx-vlm in venv')
-            return { python: vPy, installed: true }
-          }
-        } catch {
-          // venv exists but mlx_vlm not importable
+        // Venv Python is compatible — check if required MLX packages are installed
+        if (hasRequiredMLXPackages(vPy)) {
+          console.log('[mlx] Found mlx-vlm and mlx-lm in venv')
+          return { python: vPy, installed: true }
         }
-        // Venv exists but mlx_vlm is missing — can still pip install into it
+        // Venv exists but a package is missing — can still pip install into it
         return { python: vPy, installed: false }
       }
     } catch {
@@ -166,7 +191,7 @@ export function locateMLX(): MLXStatus | null {
 }
 
 // ---------------------------------------------------------------------------
-// Installation — creates a venv and installs mlx-vlm
+// Installation — creates a venv and installs MLX server packages
 // ---------------------------------------------------------------------------
 
 export type InstallProgress = {
@@ -175,7 +200,7 @@ export type InstallProgress = {
 }
 
 /**
- * Install mlx-vlm into a dedicated virtual environment.
+ * Install MLX server packages into a dedicated virtual environment.
  * Uses --index-url to bypass any corporate pip registries.
  * Returns the venv python path to use for all subsequent operations.
  */
@@ -206,24 +231,19 @@ export async function installMLX(
     '--index-url', 'https://pypi.org/simple/'
   ], onProgress)
 
-  // Step 3: Install mlx-vlm (force public PyPI to bypass corporate registries)
-  onProgress({ stage: 'install', message: 'Installing mlx-vlm (this may take a few minutes)…' })
+  // Step 3: Install MLX server packages (force public PyPI to bypass corporate registries)
+  onProgress({ stage: 'install', message: 'Installing MLX server packages (this may take a few minutes)…' })
   await runProcess(vPy, [
-    '-m', 'pip', 'install', '--upgrade', 'mlx-vlm>=0.4.3',
+    '-m', 'pip', 'install', '--upgrade', 'mlx-vlm>=0.4.3', 'mlx-lm',
     '--index-url', 'https://pypi.org/simple/'
   ], onProgress)
 
   // Verify the install worked
-  const check = spawnSync(vPy, ['-c', 'import mlx_vlm; print("ok")'], {
-    timeout: 15000,
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-  if (check.status !== 0 || !check.stdout?.toString().includes('ok')) {
-    const err = check.stderr?.toString().slice(-300) || 'unknown error'
-    throw new Error(`mlx-vlm installed but failed to import: ${err}`)
+  if (!hasRequiredMLXPackages(vPy)) {
+    throw new Error('MLX server packages installed but failed verification.')
   }
 
-  console.log('[mlx] mlx-vlm installed successfully')
+  console.log('[mlx] MLX server packages installed successfully')
   return vPy
 }
 
@@ -278,10 +298,12 @@ export async function startServer(
   model: string,
   onProgress?: (p: ServerProgress) => void
 ): Promise<void> {
-  if (serverProc && !serverProc.killed && currentModel === model) return
+  const serverKind = getServerKindForModel(model)
+  const serverModule = serverModuleForKind(serverKind)
+  if (serverProc && !serverProc.killed && currentModel === model && currentServerKind === serverKind) return
 
   // Kill existing server if running with different model
-  stopServer()
+  await stopServer()
 
   const env = {
     ...process.env,
@@ -298,12 +320,12 @@ export async function startServer(
   let stderrBuf = ''
 
   console.log(
-    `[mlx] Starting server: APC_ENABLED=1 APC_NUM_BLOCKS=4096 ${python} -m mlx_vlm.server --model ${model} --port ${MLX_PORT}`
+    `[mlx] Starting server: APC_ENABLED=1 APC_NUM_BLOCKS=4096 ${python} -m ${serverModule} --model ${model} --port ${MLX_PORT}`
   )
 
   serverProc = spawn(
     python,
-    ['-m', 'mlx_vlm.server', '--model', model, '--port', String(MLX_PORT)],
+    ['-m', serverModule, '--model', model, '--port', String(MLX_PORT)],
     {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -311,6 +333,7 @@ export async function startServer(
     }
   )
   currentModel = model
+  currentServerKind = serverKind
 
   serverProc.stdout?.on('data', (d) => console.log('[mlx]', d.toString().trim()))
   let progressDone = false
@@ -348,6 +371,7 @@ export async function startServer(
     earlyExit = { code, stderr: stderrBuf }
     serverProc = null
     currentModel = null
+    currentServerKind = null
   })
 
   // Wait for the server to become healthy.
@@ -356,13 +380,43 @@ export async function startServer(
   progressDone = true
 }
 
-export function stopServer(): void {
-  if (serverProc && !serverProc.killed) {
-    console.log('[mlx] Stopping server')
-    serverProc.kill('SIGTERM')
-    serverProc = null
-    currentModel = null
+export function stopServer(): Promise<void> {
+  const proc = serverProc
+  serverProc = null
+  currentModel = null
+  currentServerKind = null
+
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+    return Promise.resolve()
   }
+
+  return new Promise((resolve) => {
+    console.log('[mlx] Stopping server')
+
+    let settled = false
+    let forceTimer: NodeJS.Timeout | null = null
+
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      if (forceTimer) clearTimeout(forceTimer)
+      resolve()
+    }
+
+    proc.once('exit', finish)
+    proc.once('error', finish)
+
+    forceTimer = setTimeout(() => {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        proc.kill('SIGKILL')
+      }
+      forceTimer = setTimeout(finish, 2000)
+    }, 5000)
+
+    if (!proc.kill('SIGTERM')) {
+      finish()
+    }
+  })
 }
 
 /**
@@ -486,7 +540,6 @@ export async function* chatStream(
   }
 
   // Parse SSE stream (OpenAI format: "data: {...}\n\n")
-  const wrapReasoning = strategy?.parser.kind === 'reasoning-field'
   let reasoningOpen = false
   const stream = res.body as unknown as ReadableStream<Uint8Array>
   for await (const event of readSSE(stream)) {
@@ -501,15 +554,15 @@ export async function* chatStream(
     try {
       const parsed = JSON.parse(event) as {
         choices?: Array<{
-          delta?: { content?: string; reasoning?: string; role?: string }
+          delta?: { content?: string; reasoning?: string; reasoning_content?: string; role?: string }
           finish_reason?: string | null
         }>
       }
       const choice = parsed.choices?.[0]
-      const reasoningChunk = choice?.delta?.reasoning
+      const reasoningChunk = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content
       const contentChunk = choice?.delta?.content
 
-      if (wrapReasoning && reasoningChunk) {
+      if (reasoningChunk) {
         if (!reasoningOpen) {
           yield { content: '<think>' }
           reasoningOpen = true

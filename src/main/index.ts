@@ -1205,6 +1205,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  stopServer()
+  void stopServer()
   stopWorkspaceServer()
 })

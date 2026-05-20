@@ -28,6 +28,26 @@ const THINKING_STRATEGIES: Record<string, ThinkingStrategy> = {
     trigger: { kind: 'system-token', token: '<|think|>' },
     parser: { kind: 'reasoning-field' },
     recommendedMaxTokens: 8192
+  },
+  'mlx-community/gemma-4-26b-a4b-it-4bit': {
+    trigger: { kind: 'always-on' },
+    parser: { kind: 'reasoning-field' },
+    recommendedMaxTokens: 8192
+  },
+  'mlx-community/gemma-4-31b-it-4bit': {
+    trigger: { kind: 'always-on' },
+    parser: { kind: 'reasoning-field' },
+    recommendedMaxTokens: 8192
+  },
+  'unsloth/gemma-4-26b-a4b-it-UD-MLX-4bit': {
+    trigger: { kind: 'always-on' },
+    parser: { kind: 'reasoning-field' },
+    recommendedMaxTokens: 8192
+  },
+  'unsloth/gemma-4-31b-it-UD-MLX-4bit': {
+    trigger: { kind: 'always-on' },
+    parser: { kind: 'reasoning-field' },
+    recommendedMaxTokens: 8192
   }
 }
 
