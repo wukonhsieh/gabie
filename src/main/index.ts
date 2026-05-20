@@ -46,6 +46,7 @@ import {
   type ToolPermissionEvaluation
 } from './permissions'
 import { LOOP_WINDOW, CYCLE_REPEATS, toolFingerprint, detectToolLoop } from './toolLoopGuard'
+import { detectTextRepetition } from './textRepetitionGuard'
 import {
   loadChatStateFromDisk,
   normalizeChatState,
@@ -523,12 +524,14 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
     const toolHistory: string[] = []
     let loopNudgeIssued = false
     let verificationNudgeIssued = false
+    let textLoopNudgeIssued = false
 
     for (let round = 0; round < maxRounds; round++) {
       let buffer = ''
       let emittedIdx = 0
       let firstToken = true
       let executedAction = false
+      let textRepetitionDetected = false
       let lastActivityTs = 0
       let pendingAction: { name: string; target?: string } | null = null
 
@@ -687,6 +690,11 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
             }
           }
 
+          if (!pendingAction && detectTextRepetition(buffer)) {
+            textRepetitionDetected = true
+            break streamLoop
+          }
+
           emitActivity()
 
           while (true) {
@@ -841,6 +849,28 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
         }
         if (chunk.done) {
           break streamLoop
+        }
+      }
+
+      if (textRepetitionDetected) {
+        if (!textLoopNudgeIssued) {
+          textLoopNudgeIssued = true
+          if (emittedIdx > 0) {
+            baseMessages.push({ role: 'assistant', content: buffer.slice(0, emittedIdx) })
+          }
+          baseMessages.push({
+            role: 'user',
+            content: `=== system_notice ===\nYour response entered a text repetition loop. Stop repeating the same phrases. Reconsider your approach and give a fresh, complete answer.\n=== end ===`
+          })
+          emit({ type: 'activity', activity: { kind: 'thinking', chars: 0 } })
+          continue
+        } else {
+          emit({ type: 'activity', activity: { kind: 'idle' } })
+          emit({
+            type: 'error',
+            error: 'Aborted: response kept looping with repeated text even after a nudge to change approach.'
+          })
+          return
         }
       }
 
