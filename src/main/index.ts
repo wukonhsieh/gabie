@@ -40,6 +40,8 @@ import {
   evaluateToolPermission,
   loadToolPermissionPolicy,
   saveToolPermission,
+  loadChatLanguage,
+  saveChatLanguage,
   type ToolPermissionPolicy,
   type ToolPermissionEvaluation
 } from './permissions'
@@ -392,12 +394,13 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
   try {
     const baseMessages: MLXChatMessage[] = []
 
+    const chatLang = await loadChatLanguage()
     if (req.mode === 'code') {
       const wsPath = await ensureWorkspace(req.conversationId)
       const href = previewUrl(req.conversationId)
-      baseMessages.push({ role: 'system', content: codeSystemPrompt(wsPath, href) })
+      baseMessages.push({ role: 'system', content: codeSystemPrompt(wsPath, href, chatLang) })
     } else {
-      baseMessages.push({ role: 'system', content: chatSystemPrompt(req.enableTools) })
+      baseMessages.push({ role: 'system', content: chatSystemPrompt(req.enableTools, chatLang) })
     }
 
     // Skill scan: runs on first handleChat, and re-runs whenever workspacePath changes
@@ -1109,13 +1112,15 @@ app.whenReady().then(async () => {
         enableTools
       }: { mode: string; projectPath?: string; conversationId?: string; enableTools?: boolean }
     ): Promise<string> => {
+      const chatLang = await loadChatLanguage()
       const basePrompt =
         mode === 'code'
           ? codeSystemPrompt(
               projectPath ?? workspacesRoot(),
-              conversationId ? previewUrl(conversationId) : ''
+              conversationId ? previewUrl(conversationId) : '',
+              chatLang
             )
-          : chatSystemPrompt(enableTools ?? true)
+          : chatSystemPrompt(enableTools ?? true, chatLang)
 
       let skillCatalog = ''
       try {
@@ -1139,6 +1144,17 @@ app.whenReady().then(async () => {
       }
 
       return skillCatalog ? `${basePrompt}\n\n${skillCatalog}` : basePrompt
+    }
+  )
+
+  ipcMain.handle(SETTINGS_CHANNELS.GET_CHAT_LANGUAGE, async (): Promise<string> => {
+    return loadChatLanguage()
+  })
+
+  ipcMain.handle(
+    SETTINGS_CHANNELS.SET_CHAT_LANGUAGE,
+    async (_e, { lang }: { lang: string }): Promise<void> => {
+      await saveChatLanguage(lang)
     }
   )
 

@@ -187,6 +187,21 @@ function GeneralTab() {
   const [contextError, setContextError] = useState(false)
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [conversationLoaded, setConversationLoaded] = useState(false)
+  const [chatLanguage, setChatLanguage] = useState<string>('en')
+
+  useEffect(() => {
+    window.api.settingsGetChatLanguage().then(setChatLanguage).catch(() => {})
+  }, [])
+
+  async function handleChatLanguageChange(lang: string): Promise<void> {
+    const prev = chatLanguage
+    setChatLanguage(lang)
+    try {
+      await window.api.settingsSetChatLanguage(lang)
+    } catch {
+      setChatLanguage(prev)
+    }
+  }
 
   useEffect(() => {
     window.api.settingsGetWorkspaceRoot()
@@ -240,6 +255,25 @@ function GeneralTab() {
   return (
     <div className="max-w-2xl space-y-8">
       <h2 className="text-[15px] font-semibold text-white">General</h2>
+
+      <div className="space-y-1.5">
+        <label className="text-[11px] font-medium uppercase tracking-wider text-ink-400">
+          Chat Language
+        </label>
+        <select
+          value={chatLanguage}
+          onChange={(e) => handleChatLanguageChange(e.target.value)}
+          className="w-48 cursor-pointer rounded-lg border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-[13px] text-ink-100 focus:outline-none focus:ring-1 focus:ring-white/20"
+        >
+          <option value="en">English</option>
+          <option value="zh-TW">繁體中文</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+        </select>
+        <p className="text-[11px] text-ink-400">
+          Sets the language the model uses for all responses.
+        </p>
+      </div>
 
       <div className="space-y-1.5">
         <label className="text-[11px] font-medium uppercase tracking-wider text-ink-400">

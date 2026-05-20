@@ -460,14 +460,25 @@ function renderToolHelp(mode: 'chat' | 'code'): string {
   return lines.join('\n')
 }
 
-export function chatSystemPrompt(enableTools: boolean): string {
+function languageInstruction(lang?: string): string {
+  switch (lang) {
+    case 'zh-TW': return 'Always respond in Traditional Chinese (繁體中文).'
+    case 'ja':    return 'Always respond in Japanese (日本語).'
+    case 'ko':    return 'Always respond in Korean (한국어).'
+    default:      return ''
+  }
+}
+
+export function chatSystemPrompt(enableTools: boolean, chatLanguage?: string): string {
   const now = new Date().toISOString()
   const day = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+  const inst = languageInstruction(chatLanguage)
   if (!enableTools) {
     return [
       "You are Gemma, an AI assistant running 100% locally on the user's Mac.",
       `Current date/time: ${now} (${day}). Timezone: ${tz()}.`,
-      'Be clear, concise, and helpful. Use markdown for formatting when useful.'
+      'Be clear, concise, and helpful. Use markdown for formatting when useful.',
+      ...(inst ? ['', inst] : [])
     ].join('\n')
   }
   return [
@@ -497,13 +508,15 @@ export function chatSystemPrompt(enableTools: boolean): string {
     '',
     'Tools:',
     '',
-    renderToolHelp('chat')
+    renderToolHelp('chat'),
+    ...(inst ? ['', inst] : [])
   ].join('\n')
 }
 
-export function codeSystemPrompt(workspacePath: string, previewHref: string): string {
+export function codeSystemPrompt(workspacePath: string, previewHref: string, chatLanguage?: string): string {
   const now = new Date().toISOString()
   const day = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+  const inst = languageInstruction(chatLanguage)
   return [
     "You are Gemma, a local coding agent running entirely on the user's Mac.",
     `Date: ${now} (${day}). Workspace: ${workspacePath}. Preview: ${previewHref}`,
@@ -577,7 +590,8 @@ export function codeSystemPrompt(workspacePath: string, previewHref: string): st
     '',
     'AVAILABLE TOOLS',
     '',
-    renderToolHelp('code')
+    renderToolHelp('code'),
+    ...(inst ? ['', inst] : [])
   ].join('\n')
 }
 

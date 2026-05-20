@@ -221,4 +221,6 @@ export const SETTINGS_CHANNELS = {
   GET_PERMISSIONS: 'settings:get-permissions',
   SET_PERMISSION: 'settings:set-permission',
   GET_SYSTEM_PROMPT: 'settings:get-system-prompt',
+  GET_CHAT_LANGUAGE: 'settings:get-chat-language',
+  SET_CHAT_LANGUAGE: 'settings:set-chat-language',
 } as const

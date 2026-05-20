@@ -136,7 +136,13 @@ const api = {
       projectPath,
       conversationId,
       enableTools
-    })
+    }),
+
+  settingsGetChatLanguage: (): Promise<string> =>
+    ipcRenderer.invoke(SETTINGS_CHANNELS.GET_CHAT_LANGUAGE),
+
+  settingsSetChatLanguage: (lang: string): Promise<void> =>
+    ipcRenderer.invoke(SETTINGS_CHANNELS.SET_CHAT_LANGUAGE, { lang })
 }
 
 contextBridge.exposeInMainWorld('api', api)

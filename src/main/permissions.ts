@@ -25,6 +25,7 @@ export const DEFAULT_TOOL_PERMISSION_POLICY: ToolPermissionPolicy = {
 
 export interface ToolPermissionConfig {
   tools: Record<string, ToolPermissionMode>
+  chatLanguage?: string
 }
 
 export function toolPermissionConfigPath(): string {
@@ -74,6 +75,30 @@ function normalizeToolPermissionConfig(value: unknown): ToolPermissionConfig {
     }
   }
   return { tools }
+}
+
+export async function loadChatLanguage(): Promise<string> {
+  const path = toolPermissionConfigPath()
+  try {
+    const raw = JSON.parse(await readFile(path, 'utf-8'))
+    const lang = (raw as ToolPermissionConfig).chatLanguage
+    return typeof lang === 'string' && lang ? lang : 'en'
+  } catch {
+    return 'en'
+  }
+}
+
+export async function saveChatLanguage(lang: string): Promise<void> {
+  const path = toolPermissionConfigPath()
+  let raw: unknown = {}
+  try {
+    raw = JSON.parse(await readFile(path, 'utf-8'))
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+  }
+  const merged = { ...(typeof raw === 'object' && raw !== null ? raw : {}), chatLanguage: lang }
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, JSON.stringify(merged, null, 2) + '\n', 'utf-8')
 }
 
 export async function saveToolPermission(tool: string, value: ToolPermissionMode): Promise<void> {
