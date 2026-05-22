@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { spawn, ChildProcess, spawnSync } from 'child_process'
 import { join } from 'path'
 import { existsSync, rmSync } from 'fs'
+import { totalmem } from 'os'
 import { getThinkingStrategy } from './skills/thinking-strategies'
 
 const MLX_PORT = 11434
@@ -319,13 +320,19 @@ export async function startServer(
   let earlyExit: { code: number | null; stderr: string } | null = null
   let stderrBuf = ''
 
+  const spawnArgs = ['-m', serverModule, '--model', model, '--port', String(MLX_PORT)]
+  if (serverKind === 'lm') {
+    const cacheBytes = Math.floor(totalmem() * 0.35)
+    spawnArgs.push('--prompt-cache-bytes', String(cacheBytes))
+  }
+
   console.log(
-    `[mlx] Starting server: APC_ENABLED=1 APC_NUM_BLOCKS=4096 ${python} -m ${serverModule} --model ${model} --port ${MLX_PORT}`
+    `[mlx] Starting server: APC_ENABLED=1 APC_NUM_BLOCKS=4096 ${python} ${spawnArgs.join(' ')}`
   )
 
   serverProc = spawn(
     python,
-    ['-m', serverModule, '--model', model, '--port', String(MLX_PORT)],
+    spawnArgs,
     {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
