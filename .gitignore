@@ -4,6 +4,9 @@ dist/
 release/
 .vite/
 .cache/
+__mocks__
+.agents/
+.claude/
 
 *.log
 npm-debug.log*
