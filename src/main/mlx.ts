@@ -8,6 +8,7 @@ import { getThinkingStrategy } from './skills/thinking-strategies'
 const MLX_PORT = 11434
 const MLX_HOST = `127.0.0.1:${MLX_PORT}`
 const MLX_URL = `http://${MLX_HOST}`
+const MLX_SSE_IDLE_TIMEOUT_MS = 120_000
 
 type MLXServerKind = 'vlm' | 'lm'
 
@@ -549,7 +550,7 @@ export async function* chatStream(
   // Parse SSE stream (OpenAI format: "data: {...}\n\n")
   let reasoningOpen = false
   const stream = res.body as unknown as ReadableStream<Uint8Array>
-  for await (const event of readSSE(stream)) {
+  for await (const event of readSSE(stream, opts.signal)) {
     if (event === '[DONE]') {
       if (reasoningOpen) {
         yield { content: '</think>\n' }
@@ -602,13 +603,16 @@ export async function* chatStream(
 }
 
 /** Parse an SSE byte stream into individual data payloads */
-async function* readSSE(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+async function* readSSE(
+  stream: ReadableStream<Uint8Array>,
+  signal?: AbortSignal
+): AsyncGenerator<string> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buf = ''
 
   while (true) {
-    const { done, value } = await reader.read()
+    const { done, value } = await readWithIdleTimeout(reader, signal)
     if (done) break
     buf += decoder.decode(value, { stream: true })
 
@@ -635,6 +639,67 @@ async function* readSSE(stream: ReadableStream<Uint8Array>): AsyncGenerator<stri
       }
     }
   }
+}
+
+function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (signal?.aborted) {
+    throwAbortError()
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
+    const cleanup = (): void => {
+      if (timeout) clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+    }
+
+    const resolveOnce = (value: ReadableStreamReadResult<Uint8Array>): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(value)
+    }
+
+    const rejectOnce = (error: Error): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    const onAbort = (): void => {
+      void reader.cancel().catch(() => {})
+      const error = new Error('Chat request aborted')
+      error.name = 'AbortError'
+      rejectOnce(error)
+    }
+
+    timeout = setTimeout(() => {
+      void reader.cancel().catch(() => {})
+      rejectOnce(
+        new Error(
+          `Chat stream timed out after ${MLX_SSE_IDLE_TIMEOUT_MS / 1000}s without server output.`
+        )
+      )
+    }, MLX_SSE_IDLE_TIMEOUT_MS)
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+    reader.read().then(
+      (result) => resolveOnce(result),
+      (error) => rejectOnce(error instanceof Error ? error : new Error(String(error)))
+    )
+  })
+}
+
+function throwAbortError(): never {
+  const error = new Error('Chat request aborted')
+  error.name = 'AbortError'
+  throw error
 }
 
 export { MLX_URL }

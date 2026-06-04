@@ -29,11 +29,6 @@ const THINKING_STRATEGIES: Record<string, ThinkingStrategy> = {
     parser: { kind: 'reasoning-field' },
     recommendedMaxTokens: 8192
   },
-  'mlx-community/gemma-4-12B-it-4bit': {
-    trigger: { kind: 'system-token', token: '<|think|>' },
-    parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
-  },
   'mlx-community/gemma-4-26b-a4b-it-4bit': {
     trigger: { kind: 'always-on' },
     parser: { kind: 'reasoning-field' },
