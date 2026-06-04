@@ -39,6 +39,7 @@ Most AI agent tools have large tool schemas that are too computationally heavy f
 |---|---|---|
 | Gemma 4 E2B | ~1.5 GB | Fast Q&A, simple tasks |
 | Gemma 4 E4B | ~3 GB | Speed, but not capable to execude skills |
+| Gemma 4 13B | -- | -- |
 | **Gemma 4 27B MoE** | **~8 GB** | **Recommended.** Stronger reasoning and able to execute skills (needs 16 GB+ RAM) |
 | Gemma 4 31B | ~18 GB | Maximum quality (needs 32 GB+ RAM) |
 
@@ -48,6 +49,7 @@ Most AI agent tools have large tool schemas that are too computationally heavy f
 |---|---|---|---|
 | Gemma 4 E2B | 3 failed | -- | Test Files 4/4 passed / Tests 78/78 passed |
 | Gemma 4 E4B | ALL PASSED | ★★★☆☆ | Test Files 4/4 passed / Tests 78/78 passed |
+| Gemma 4 12B | -- | -- | -- |
 | Gemma 4 27B MoE | ALL PASSED | ★★★★☆ | Test Files 4/4 passed / Tests 78/78 passed |
 | Gemma 4 31B | ALL PASSED | ★★★★★ | Test Files 4/4 passed / Tests 78/78 passed |
 | (more models in the future ...) | -- | -- | -- |
