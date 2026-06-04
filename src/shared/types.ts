@@ -173,6 +173,14 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     recommended: true,
     thinkingSupport: 'system-token'
   },
+  {
+    name: 'mlx-community/gemma-4-12B-it-4bit',
+    label: 'Gemma 4 12B',
+    size: '8 GB',
+    sizeBytes: 8_000_000_000,
+    description: 'Mid-sized multimodal model. Better quality than E4B. 16GB+ RAM recommended.',
+    thinkingSupport: 'system-token'
+  },
   // {
   //   name: 'mlx-community/gemma-4-26b-a4b-it-4bit',
   //   label: 'Gemma 4 27B MoE',

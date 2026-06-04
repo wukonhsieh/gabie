@@ -12,10 +12,11 @@
  *
  * Repeat with:
  *   LLM_MODEL=mlx-community/gemma-4-e4b-it-4bit
+ *   LLM_MODEL=mlx-community/gemma-4-12B-it-4bit
  *   LLM_MODEL=unsloth/gemma-4-26b-a4b-it-UD-MLX-4bit
  *   LLM_MODEL=unsloth/gemma-4-31b-it-UD-MLX-4bit
  *
- * Results for all four models can be compared side-by-side using:
+ * Results for all models can be compared side-by-side using:
  *   npm run test:tool-capability 2>&1 | tee results-<model-label>.txt
  */
 
