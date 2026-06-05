@@ -69,6 +69,7 @@ async function callLLM(
 
 function collectStreamingContent(raw: string): string {
   let content = ''
+  let reasoningOpen = false
   for (const line of raw.split(/\r?\n/)) {
     if (!line.startsWith('data: ')) continue
     const payload = line.slice(6).trim()
@@ -84,10 +85,27 @@ function collectStreamingContent(raw: string): string {
         }>
       }
       const delta = event.choices?.[0]?.delta
-      content += delta?.reasoning ?? delta?.reasoning_content ?? delta?.content ?? ''
+      const reasoningChunk = delta?.reasoning ?? delta?.reasoning_content
+      if (reasoningChunk) {
+        if (!reasoningOpen) {
+          content += '<think>'
+          reasoningOpen = true
+        }
+        content += reasoningChunk
+      }
+      if (delta?.content) {
+        if (reasoningOpen) {
+          content += '</think>\n'
+          reasoningOpen = false
+        }
+        content += delta.content
+      }
     } catch {
       // Ignore malformed SSE events; the test assertions fail if no action remains.
     }
+  }
+  if (reasoningOpen) {
+    content += '</think>\n'
   }
   return content
 }
