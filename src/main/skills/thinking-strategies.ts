@@ -5,6 +5,7 @@
 export type ThinkingTrigger =
   | { kind: 'system-token'; token: string }
   | { kind: 'template-kwarg'; key: string }
+  | { kind: 'top-level-flag'; key: string }
   | { kind: 'always-on' }
   | { kind: 'unsupported' }
 
@@ -26,6 +27,11 @@ const THINKING_STRATEGIES: Record<string, ThinkingStrategy> = {
   },
   'mlx-community/gemma-4-e4b-it-4bit': {
     trigger: { kind: 'system-token', token: '<|think|>' },
+    parser: { kind: 'reasoning-field' },
+    recommendedMaxTokens: 8192
+  },
+  'mlx-community/gemma-4-12B-it-4bit': {
+    trigger: { kind: 'top-level-flag', key: 'enable_thinking' },
     parser: { kind: 'reasoning-field' },
     recommendedMaxTokens: 8192
   },

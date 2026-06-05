@@ -9,6 +9,7 @@ const MLX_PORT = 11434
 const MLX_HOST = `127.0.0.1:${MLX_PORT}`
 const MLX_URL = `http://${MLX_HOST}`
 const MLX_SSE_IDLE_TIMEOUT_MS = 120_000
+const REQUIRED_MLX_VLM_VERSION = '0.6.1'
 
 type MLXServerKind = 'vlm' | 'lm'
 
@@ -132,13 +133,29 @@ export interface MLXStatus {
 
 function hasRequiredMLXPackages(python: string): boolean {
   try {
+    const checkCode = `
+import importlib.util
+import re
+from importlib.metadata import PackageNotFoundError, version
+
+missing = [name for name in ("mlx_vlm", "mlx_lm") if importlib.util.find_spec(name) is None]
+if missing:
+    raise SystemExit(1)
+
+def normalize(value):
+    parts = [int(part) for part in re.findall(r"\\d+", value.split("+", 1)[0])[:3]]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+try:
+    mlx_vlm_version = version("mlx-vlm")
+except PackageNotFoundError:
+    raise SystemExit(1)
+
+raise SystemExit(0 if normalize(mlx_vlm_version) >= normalize("${REQUIRED_MLX_VLM_VERSION}") else 1)
+`
     const check = spawnSync(python, [
       '-c',
-      [
-        'import importlib.util',
-        'missing = [name for name in ("mlx_vlm", "mlx_lm") if importlib.util.find_spec(name) is None]',
-        'raise SystemExit(1 if missing else 0)'
-      ].join('; ')
+      checkCode
     ], {
       timeout: 15000,
       stdio: ['ignore', 'pipe', 'pipe']
@@ -173,7 +190,7 @@ export function locateMLX(): MLXStatus | null {
       } else {
         // Venv Python is compatible — check if required MLX packages are installed
         if (hasRequiredMLXPackages(vPy)) {
-          console.log('[mlx] Found mlx-vlm and mlx-lm in venv')
+          console.log(`[mlx] Found mlx-vlm >= ${REQUIRED_MLX_VLM_VERSION} and mlx-lm in venv`)
           return { python: vPy, installed: true }
         }
         // Venv exists but a package is missing — can still pip install into it
@@ -236,7 +253,7 @@ export async function installMLX(
   // Step 3: Install MLX server packages (force public PyPI to bypass corporate registries)
   onProgress({ stage: 'install', message: 'Installing MLX server packages (this may take a few minutes)…' })
   await runProcess(vPy, [
-    '-m', 'pip', 'install', '--upgrade', 'mlx-vlm>=0.4.3', 'mlx-lm',
+    '-m', 'pip', 'install', '--upgrade', `mlx-vlm>=${REQUIRED_MLX_VLM_VERSION}`, 'mlx-lm',
     '--index-url', 'https://pypi.org/simple/'
   ], onProgress)
 
@@ -522,6 +539,8 @@ export async function* chatStream(
       messages = [{ role: 'system', content: strategy.trigger.token }, ...messages]
     } else if (strategy.trigger.kind === 'template-kwarg') {
       extraBody.chat_template_kwargs = { [strategy.trigger.key]: true }
+    } else if (strategy.trigger.kind === 'top-level-flag') {
+      extraBody[strategy.trigger.key] = true
     }
     if (strategy.recommendedMaxTokens && strategy.recommendedMaxTokens > maxTokens) {
       maxTokens = strategy.recommendedMaxTokens

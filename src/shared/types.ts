@@ -152,7 +152,7 @@ export interface ModelInfo {
   description: string
   recommended?: boolean
   /** How this model activates reasoning. Absent means unsupported. */
-  thinkingSupport?: 'system-token' | 'always-on'
+  thinkingSupport?: 'system-token' | 'always-on' | 'server-enable-thinking'
 }
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
@@ -172,6 +172,14 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     description: 'Best all-rounder. Text + image + audio. Runs on 8GB+ Macs.',
     recommended: true,
     thinkingSupport: 'system-token'
+  },
+  {
+    name: 'mlx-community/gemma-4-12B-it-4bit',
+    label: 'Gemma 4 12B',
+    size: '10 GB',
+    sizeBytes: 10_000_000_000,
+    description: 'Unified multimodal model. Stronger than E-series. 16GB+ RAM recommended.',
+    thinkingSupport: 'server-enable-thinking'
   },
   // {
   //   name: 'mlx-community/gemma-4-26b-a4b-it-4bit',
