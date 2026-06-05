@@ -9,6 +9,19 @@ import {
   findFiles,
   previewUrl
 } from './workspace'
+import {
+  parseToolCall,
+  emitSafeBoundary,
+  webSearchTool,
+  webFetchTool,
+  calcTool,
+  type ParsedToolCall
+} from 'llm-tools'
+
+export { parseToolCall as findNextAction, emitSafeBoundary }
+export type ParsedAction = ParsedToolCall
+
+const _LLM_CTX = { workspacePath: '' }
 
 export interface ToolContext {
   conversationId: string
@@ -28,141 +41,6 @@ export interface ToolSpec {
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>
 }
 
-const UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-
-async function webSearch(args: Record<string, unknown>): Promise<string> {
-  const query = String(args.query ?? '').trim()
-  if (!query) return 'Error: missing query'
-  const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`
-  const res = await fetch(url, { headers: { 'user-agent': UA, accept: 'text/html' } })
-  if (!res.ok) return `Search failed: ${res.status} ${res.statusText}`
-  const html = await res.text()
-  const results = parseDuckDuckGoResults(html).slice(0, 6)
-  if (results.length === 0) return 'No results found.'
-  return results
-    .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
-    .join('\n\n')
-}
-
-function parseDuckDuckGoResults(
-  html: string
-): Array<{ title: string; url: string; snippet: string }> {
-  const results: Array<{ title: string; url: string; snippet: string }> = []
-  const blockRe = /<div class="result[^"]*?"[^>]*>([\s\S]*?)<div class="clear"/g
-  const titleRe = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/
-  const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/
-
-  let m: RegExpExecArray | null
-  while ((m = blockRe.exec(html))) {
-    const block = m[1]
-    const t = titleRe.exec(block)
-    const s = snippetRe.exec(block)
-    if (!t) continue
-    const rawUrl = decodeURIComponent(t[1].replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, ''))
-      .split('&rut=')[0]
-      .split('&amp;')[0]
-    const cleanUrl = rawUrl.split('&')[0]
-    const title = stripTags(t[2]).trim()
-    const snippet = s ? stripTags(s[1]).trim() : ''
-    if (title && cleanUrl.startsWith('http')) {
-      results.push({ title, url: cleanUrl, snippet })
-    }
-    if (results.length >= 10) break
-  }
-  return results
-}
-
-function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase()
-  if (h === 'localhost' || h === '0.0.0.0') return true
-  const stripped = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h
-  if (stripped === '::1') return true
-  if (stripped.startsWith('::ffff:')) return true
-  const parts = stripped.split('.').map(Number)
-  if (parts.length === 4 && parts.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
-    const [a, b] = parts
-    if (
-      a === 0 || a === 10 || a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    ) return true
-  }
-  return false
-}
-
-async function fetchUrl(args: Record<string, unknown>): Promise<string> {
-  const url = String(args.url ?? '').trim()
-  if (!url) return 'Error: missing url'
-  if (!/^https?:\/\//.test(url)) return 'Error: url must be http(s)'
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return 'Error: invalid URL'
-  }
-  if (isPrivateHost(parsed.hostname)) {
-    return 'Error: fetching localhost or private addresses is not allowed'
-  }
-  try {
-    const res = await fetch(url, { headers: { 'user-agent': UA } })
-    if (!res.ok) return `Fetch failed: ${res.status} ${res.statusText}`
-    const ct = res.headers.get('content-type') || ''
-    const text = await res.text()
-    if (ct.includes('html')) {
-      return htmlToText(text).slice(0, 8000)
-    }
-    return text.slice(0, 8000)
-  } catch (e) {
-    return `Error fetching: ${(e as Error).message}`
-  }
-}
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-async function calc(args: Record<string, unknown>): Promise<string> {
-  const expr = String(args.expression ?? '').trim()
-  if (!expr) return 'Error: missing expression'
-  if (!/^[0-9+\-*/().\s^%,eE]*$/.test(expr)) {
-    return 'Error: only numeric expressions allowed'
-  }
-  try {
-    const sanitized = expr.replace(/\^/g, '**')
-    const result = Function(`"use strict"; return (${sanitized})`)()
-    return String(result)
-  } catch (e) {
-    return `Error: ${(e as Error).message}`
-  }
-}
 
 async function writeFile(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const path = String(args.path ?? '').trim()
@@ -322,7 +200,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'query', description: 'what to search for', required: true }],
     example: '@@web_search\nquery: latest tensorflow release notes\n@@end',
     mode: 'both',
-    run: webSearch
+    run: (args) => webSearchTool.run(args, _LLM_CTX)
   },
   fetch_url: {
     name: 'fetch_url',
@@ -330,7 +208,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'url', description: 'absolute http(s) URL', required: true }],
     example: '@@fetch_url\nurl: https://example.com\n@@end',
     mode: 'both',
-    run: fetchUrl
+    run: (args) => webFetchTool.run(args, _LLM_CTX)
   },
   calc: {
     name: 'calc',
@@ -338,7 +216,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'expression', description: 'math expression', required: true }],
     example: '@@calc\nexpression: 2 + 2 * 3\n@@end',
     mode: 'both',
-    run: calc
+    run: (args) => calcTool.run(args, _LLM_CTX)
   },
   write_file: {
     name: 'write_file',
@@ -595,230 +473,6 @@ export function codeSystemPrompt(workspacePath: string, previewHref: string, cha
   ].join('\n')
 }
 
-export interface ParsedAction {
-  name: string
-  args: Record<string, unknown>
-  raw: string
-  start: number
-  end: number
-}
-
-export function findNextAction(text: string, from = 0): ParsedAction | 'incomplete' | null {
-  // Try heredoc format first (new primary format).
-  const here = findNextHeredocAction(text, from)
-  if (here !== null) return here
-  // Fall back to legacy XML format for old conversations.
-  return findNextXmlAction(text, from)
-}
-
-// New primary format: bash-style heredoc.
-//
-//   @@<tool_name>
-//   key: value           (single-line param)
-//   key <<MARKER         (heredoc multi-line param)
-//   ...content...
-//   MARKER
-//   @@end
-//
-// Inside a heredoc body, anything goes — no escaping. The marker must appear
-// alone on its own line to close the body.
-function findNextHeredocAction(text: string, from: number): ParsedAction | 'incomplete' | null {
-  let scanFrom = from
-  while (scanFrom <= text.length) {
-    const atIdx = text.indexOf('@@', scanFrom)
-    if (atIdx < 0) return null
-    // Must be at start of line (or start of text)
-    if (atIdx > 0 && text[atIdx - 1] !== '\n') {
-      scanFrom = atIdx + 2
-      continue
-    }
-    const nlIdx = text.indexOf('\n', atIdx)
-    if (nlIdx < 0) {
-      // Possibly still streaming the opening line — defer.
-      return 'incomplete'
-    }
-    const firstLine = text.slice(atIdx + 2, nlIdx).trim()
-    // Skip orphan @@end markers
-    if (firstLine === 'end' || firstLine === '') {
-      scanFrom = nlIdx + 1
-      continue
-    }
-    const nameMatch = firstLine.match(/^([a-zA-Z_][\w]*)$/)
-    if (!nameMatch) {
-      scanFrom = atIdx + 2
-      continue
-    }
-    const name = nameMatch[1]
-    const result = parseHeredocBody(text, nlIdx + 1, atIdx, name)
-    return result
-  }
-  return null
-}
-
-function parseHeredocBody(
-  text: string,
-  bodyStart: number,
-  actionStart: number,
-  name: string
-): ParsedAction | 'incomplete' {
-  const args: Record<string, unknown> = {}
-  let lineStart = bodyStart
-  while (lineStart <= text.length) {
-    const nlIdx = text.indexOf('\n', lineStart)
-    const lineEnd = nlIdx < 0 ? text.length : nlIdx
-    const line = text.slice(lineStart, lineEnd)
-    const trimmed = line.trimEnd()
-
-    // Action terminator
-    if (trimmed === '@@end') {
-      const actionEnd = nlIdx < 0 ? text.length : nlIdx + 1
-      return {
-        name,
-        args,
-        raw: text.slice(actionStart, actionEnd),
-        start: actionStart,
-        end: actionEnd
-      }
-    }
-
-    // Heredoc declaration: `key <<MARKER`
-    const heredocMatch = trimmed.match(/^([a-zA-Z_][\w]*)[ \t]+<<([a-zA-Z_][\w]*)$/)
-    if (heredocMatch) {
-      const [, key, marker] = heredocMatch
-      if (nlIdx < 0) return 'incomplete'
-      const hbStart = nlIdx + 1
-      // Scan forward for marker line
-      let scan = hbStart
-      let foundMarkerStart = -1
-      while (scan <= text.length) {
-        const nl = text.indexOf('\n', scan)
-        const candEnd = nl < 0 ? text.length : nl
-        const candLine = text.slice(scan, candEnd)
-        if (candLine.trimEnd() === marker) {
-          foundMarkerStart = scan
-          if (nl < 0) {
-            // Marker line found but no trailing newline — treat as last line
-            lineStart = text.length + 1
-          } else {
-            lineStart = nl + 1
-          }
-          break
-        }
-        if (nl < 0) return 'incomplete'
-        scan = nl + 1
-      }
-      if (foundMarkerStart < 0) return 'incomplete'
-      // Body is up to (but not including) the newline before the marker line.
-      let bodyEnd = foundMarkerStart
-      if (bodyEnd > hbStart && text[bodyEnd - 1] === '\n') bodyEnd -= 1
-      let content = text.slice(hbStart, bodyEnd)
-      // Defensive: if the model still HTML-escaped chars, decode them.
-      content = content.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-      args[key] = content
-      continue
-    }
-
-    // `key: value`
-    const kvMatch = trimmed.match(/^([a-zA-Z_][\w]*)[ \t]*:[ \t]*(.*)$/)
-    if (kvMatch) {
-      const [, key, rawVal] = kvMatch
-      const v = rawVal.trim()
-      if (v === 'true') args[key] = true
-      else if (v === 'false') args[key] = false
-      else if (/^-?\d+$/.test(v)) args[key] = Number(v)
-      else args[key] = v
-      if (nlIdx < 0) return 'incomplete'
-      lineStart = nlIdx + 1
-      continue
-    }
-
-    // Unknown / blank line — skip
-    if (nlIdx < 0) return 'incomplete'
-    lineStart = nlIdx + 1
-  }
-  return 'incomplete'
-}
-
-// Legacy XML parser kept as fallback for conversations whose history contains
-// the old `<action>...</action>` format.
-function findNextXmlAction(text: string, from: number): ParsedAction | 'incomplete' | null {
-  const openRe = /<action\s+name\s*=\s*["']?([a-zA-Z_][\w]*)["']?\s*>/gi
-  openRe.lastIndex = from
-  const open = openRe.exec(text)
-  if (!open) return null
-  const name = open[1]
-  const bodyStart = open.index + open[0].length
-  const closeMatch = text.slice(bodyStart).match(/<\/action\s*>/i)
-  if (!closeMatch || closeMatch.index === undefined) return 'incomplete'
-  const closeIdx = bodyStart + closeMatch.index
-  const body = text.slice(bodyStart, closeIdx)
-  const args = parseXmlActionBody(body)
-  return {
-    name,
-    args,
-    raw: text.slice(open.index, closeIdx + closeMatch[0].length),
-    start: open.index,
-    end: closeIdx + closeMatch[0].length
-  }
-}
-
-function parseXmlActionBody(body: string): Record<string, unknown> {
-  const args: Record<string, unknown> = {}
-  const contentOpen = body.indexOf('<content>')
-  let outside = body
-  if (contentOpen >= 0) {
-    const contentCloseRel = body.lastIndexOf('</content>')
-    if (contentCloseRel > contentOpen) {
-      let content = body.slice(contentOpen + '<content>'.length, contentCloseRel)
-      content = content.replace(/^\n/, '')
-      content = content.replace(/\n[ \t]*$/, '')
-      content = content.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-      args.content = content
-      outside = body.slice(0, contentOpen) + body.slice(contentCloseRel + '</content>'.length)
-    }
-  }
-  const tagRe = /<([a-zA-Z_][\w-]*)>([\s\S]*?)<\/\1>/g
-  let m: RegExpExecArray | null
-  while ((m = tagRe.exec(outside)) !== null) {
-    const key = m[1]
-    if (key === 'content') continue
-    const raw = m[2]
-    const trimmed = raw.trim()
-    if (trimmed === 'true') args[key] = true
-    else if (trimmed === 'false') args[key] = false
-    else if (/^-?\d+$/.test(trimmed)) args[key] = Number(trimmed)
-    else args[key] = raw.replace(/^\n/, '').replace(/\n[ \t]*$/, '')
-  }
-  return args
-}
-
-export function emitSafeBoundary(buffer: string, from: number): number {
-  // Hold back any tail that could be the start of a forming action opener
-  // (either heredoc `@@<name>` at start of line, or legacy `<action ...>`).
-  for (let i = buffer.length - 1; i >= from; i--) {
-    const ch = buffer[i]
-    if (ch === '@') {
-      // Heredoc opener must be at start of line.
-      if (i > 0 && buffer[i - 1] !== '\n') continue
-      const tail = buffer.slice(i)
-      // `@@<name>\n` is the open form. If we haven't seen the closing newline
-      // yet, the action header is still forming — hold back.
-      if (!tail.includes('\n')) return i
-      // Has a newline → first line is complete; if it matches @@<name> it will
-      // be picked up by findNextAction in a later pass.
-      continue
-    }
-    if (ch === '<') {
-      const tail = buffer.slice(i).toLowerCase()
-      if (tail.length < 8) {
-        if ('<action'.startsWith(tail)) return i
-        continue
-      }
-      if (tail.startsWith('<action') && /\s/.test(tail[7])) return i
-    }
-  }
-  return buffer.length
-}
 
 export async function runTool(
   name: string,
