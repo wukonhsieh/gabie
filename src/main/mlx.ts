@@ -4,11 +4,16 @@ import { join } from 'path'
 import { existsSync, rmSync } from 'fs'
 import { totalmem } from 'os'
 import { getThinkingStrategy } from './skills/thinking-strategies'
+import {
+  createLLMClient,
+  type LLMClient,
+  type LLMMessage,
+  type LLMThinkingStrategy
+} from 'llm-tools'
 
 const MLX_PORT = 11434
 const MLX_HOST = `127.0.0.1:${MLX_PORT}`
 const MLX_URL = `http://${MLX_HOST}`
-const MLX_SSE_IDLE_TIMEOUT_MS = 120_000
 const REQUIRED_MLX_VLM_VERSION = '0.6.1'
 
 type MLXServerKind = 'vlm' | 'lm'
@@ -525,52 +530,85 @@ export interface MLXChatOptions {
   enableThinking?: boolean
 }
 
-export async function* chatStream(
-  opts: MLXChatOptions
-): AsyncGenerator<{ content?: string; done?: boolean }> {
-  const strategy = opts.enableThinking ? getThinkingStrategy(opts.model) : null
+export function createMLXLLMClient(
+  model: string,
+  opts: { temperature?: number; enableThinking?: boolean } = {}
+): LLMClient {
+  const strategy = opts.enableThinking ? getThinkingStrategy(model) : null
 
-  let messages = opts.messages.map((m) => ({ role: m.role, content: m.content }))
-  const extraBody: Record<string, unknown> = {}
+  let thinkingMode = false
+  let thinkingStrategy: LLMThinkingStrategy | undefined
+  let thinkingToken: string | undefined
+  let thinkingTemplateKey: string | undefined
   let maxTokens = 8192
 
   if (strategy) {
-    if (strategy.trigger.kind === 'system-token') {
-      messages = [{ role: 'system', content: strategy.trigger.token }, ...messages]
-    } else if (strategy.trigger.kind === 'template-kwarg') {
-      extraBody.chat_template_kwargs = { [strategy.trigger.key]: true }
-    } else if (strategy.trigger.kind === 'top-level-flag') {
-      extraBody[strategy.trigger.key] = true
-    }
+    thinkingMode = true
     if (strategy.recommendedMaxTokens && strategy.recommendedMaxTokens > maxTokens) {
       maxTokens = strategy.recommendedMaxTokens
     }
+    switch (strategy.trigger.kind) {
+      case 'system-token':
+        thinkingStrategy = 'system-token'
+        thinkingToken = strategy.trigger.token
+        break
+      case 'template-kwarg':
+        thinkingStrategy = 'template-kwarg'
+        thinkingTemplateKey = strategy.trigger.key
+        break
+      case 'always-on':
+      case 'top-level-flag':
+        thinkingStrategy = 'always-on'
+        break
+      default:
+        thinkingStrategy = 'unsupported'
+    }
   }
 
-  const res = await fetch(`${MLX_URL}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: opts.model,
-      messages,
-      stream: true,
-      temperature: opts.temperature ?? 0.7,
-      max_tokens: maxTokens,
-      ...extraBody
-    }),
-    signal: opts.signal
+  return createLLMClient({
+    type: 'openai-compatible',
+    url: MLX_URL,
+    model,
+    temperature: opts.temperature ?? 0.7,
+    maxTokens,
+    thinkingMode,
+    thinkingStrategy,
+    thinkingToken,
+    thinkingTemplateKey
+  })
+}
+
+export async function* chatStream(
+  opts: MLXChatOptions
+): AsyncGenerator<{ content?: string; done?: boolean }> {
+  const client = createMLXLLMClient(opts.model, {
+    temperature: opts.temperature,
+    enableThinking: opts.enableThinking
   })
 
-  if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`Chat request failed: ${res.status} ${res.statusText} — ${text}`)
-  }
+  const messages: LLMMessage[] = opts.messages.map((m) => ({
+    role: m.role as LLMMessage['role'],
+    content: m.content
+  }))
 
-  // Parse SSE stream (OpenAI format: "data: {...}\n\n")
   let reasoningOpen = false
-  const stream = res.body as unknown as ReadableStream<Uint8Array>
-  for await (const event of readSSE(stream, opts.signal)) {
-    if (event === '[DONE]') {
+
+  for await (const chunk of client.chat(messages)) {
+    if (opts.signal?.aborted) return
+
+    if (typeof chunk === 'string') {
+      if (reasoningOpen) {
+        yield { content: '</think>\n' }
+        reasoningOpen = false
+      }
+      yield { content: chunk }
+    } else if (chunk.type === 'activity' && chunk.kind === 'reasoning') {
+      if (!reasoningOpen) {
+        yield { content: '<think>' }
+        reasoningOpen = true
+      }
+      yield { content: chunk.content }
+    } else if (chunk.type === 'status') {
       if (reasoningOpen) {
         yield { content: '</think>\n' }
         reasoningOpen = false
@@ -578,147 +616,12 @@ export async function* chatStream(
       yield { done: true }
       return
     }
-    try {
-      const parsed = JSON.parse(event) as {
-        choices?: Array<{
-          delta?: { content?: string; reasoning?: string; reasoning_content?: string; role?: string }
-          finish_reason?: string | null
-        }>
-      }
-      const choice = parsed.choices?.[0]
-      const reasoningChunk = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content
-      const contentChunk = choice?.delta?.content
-
-      if (reasoningChunk) {
-        if (!reasoningOpen) {
-          yield { content: '<think>' }
-          reasoningOpen = true
-        }
-        yield { content: reasoningChunk }
-      }
-      if (contentChunk) {
-        if (reasoningOpen) {
-          yield { content: '</think>\n' }
-          reasoningOpen = false
-        }
-        yield { content: contentChunk }
-      }
-      if (choice?.finish_reason === 'stop' || choice?.finish_reason === 'length') {
-        if (reasoningOpen) {
-          yield { content: '</think>\n' }
-          reasoningOpen = false
-        }
-        yield { done: true }
-        return
-      }
-    } catch {
-      // Skip malformed events
-    }
   }
+
   if (reasoningOpen) {
     yield { content: '</think>\n' }
   }
   yield { done: true }
-}
-
-/** Parse an SSE byte stream into individual data payloads */
-async function* readSSE(
-  stream: ReadableStream<Uint8Array>,
-  signal?: AbortSignal
-): AsyncGenerator<string> {
-  const reader = stream.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-
-  while (true) {
-    const { done, value } = await readWithIdleTimeout(reader, signal)
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-
-    let idx: number
-    while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const block = buf.slice(0, idx).trim()
-      buf = buf.slice(idx + 2)
-      if (!block) continue
-      for (const line of block.split('\n')) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim()
-          if (data) yield data
-        }
-      }
-    }
-  }
-
-  // Flush remaining buffer
-  if (buf.trim()) {
-    for (const line of buf.trim().split('\n')) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6).trim()
-        if (data) yield data
-      }
-    }
-  }
-}
-
-function readWithIdleTimeout(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal?: AbortSignal
-): Promise<ReadableStreamReadResult<Uint8Array>> {
-  if (signal?.aborted) {
-    throwAbortError()
-  }
-
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let timeout: ReturnType<typeof setTimeout> | null = null
-
-    const cleanup = (): void => {
-      if (timeout) clearTimeout(timeout)
-      signal?.removeEventListener('abort', onAbort)
-    }
-
-    const resolveOnce = (value: ReadableStreamReadResult<Uint8Array>): void => {
-      if (settled) return
-      settled = true
-      cleanup()
-      resolve(value)
-    }
-
-    const rejectOnce = (error: Error): void => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(error)
-    }
-
-    const onAbort = (): void => {
-      void reader.cancel().catch(() => {})
-      const error = new Error('Chat request aborted')
-      error.name = 'AbortError'
-      rejectOnce(error)
-    }
-
-    timeout = setTimeout(() => {
-      void reader.cancel().catch(() => {})
-      rejectOnce(
-        new Error(
-          `Chat stream timed out after ${MLX_SSE_IDLE_TIMEOUT_MS / 1000}s without server output.`
-        )
-      )
-    }, MLX_SSE_IDLE_TIMEOUT_MS)
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-    reader.read().then(
-      (result) => resolveOnce(result),
-      (error) => rejectOnce(error instanceof Error ? error : new Error(String(error)))
-    )
-  })
-}
-
-function throwAbortError(): never {
-  const error = new Error('Chat request aborted')
-  error.name = 'AbortError'
-  throw error
 }
 
 export { MLX_URL }
