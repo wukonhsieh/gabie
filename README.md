@@ -37,11 +37,11 @@ Most AI agent tools have large tool schemas that are too computationally heavy f
 
 | Model | Size | Best For |
 |---|---|---|
-| Gemma 4 E2B | ~1.5 GB | Fast Q&A, simple tasks |
-| Gemma 4 E4B | ~3 GB | Speed, but not capable to execude skills |
+| Gemma 4 E2B | ~3.4 GB | Fast Q&A, simple tasks |
+| Gemma 4 E4B | ~4.9 GB | Speed, but not capable to execude skills |
 | Gemma 4 12B | ~10 GB | Balanced local multimodal model with optional Thinking (needs 16 GB+ RAM) |
-| **Gemma 4 27B MoE** | **~8 GB** | **Recommended.** Stronger reasoning and able to execute skills (needs 16 GB+ RAM) |
-| Gemma 4 31B | ~18 GB | Maximum quality (needs 32 GB+ RAM) |
+| **Gemma 4 27B MoE** | **~15 GB** | **Recommended.** Stronger reasoning and able to execute skills (needs 16 GB+ RAM) |
+| Gemma 4 31B | ~22 GB | Maximum quality (needs 32 GB+ RAM) |
 
 ## Models Verification (Ongoing)
 
