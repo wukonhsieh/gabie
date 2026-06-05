@@ -2,6 +2,7 @@ import type { ToolPermissionMode } from '../shared/types'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { homedir } from 'os'
+import type { PermissionConfig } from 'llm-tools'
 
 export type ToolPermissionPolicy = Partial<Record<string, ToolPermissionMode>>
 
@@ -114,6 +115,27 @@ export async function saveToolPermission(tool: string, value: ToolPermissionMode
   const merged = { ...(typeof raw === 'object' && raw !== null ? raw : {}), tools: config.tools }
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, JSON.stringify(merged, null, 2) + '\n', 'utf-8')
+}
+
+const GABIE_TO_LLM_TOOLS_NAME: Record<string, string> = {
+  web_search: 'web_search',
+  fetch_url: 'web_fetch',
+  calc: 'calc',
+  write_file: 'file_write',
+  read_file: 'file_read',
+  edit_file: 'file_edit',
+  list_files: 'file_list',
+  delete_file: 'file_delete',
+  run_bash: 'bash'
+}
+
+export function buildPermissionConfig(policy: ToolPermissionPolicy): PermissionConfig {
+  const defaults: Record<string, ToolPermissionMode> = {}
+  for (const [gabieKey, mode] of Object.entries(policy)) {
+    const llmKey = GABIE_TO_LLM_TOOLS_NAME[gabieKey]
+    if (llmKey && mode) defaults[llmKey] = mode
+  }
+  return { defaults, workspaces: {} }
 }
 
 export function evaluateToolPermission(
