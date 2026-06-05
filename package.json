@@ -18,9 +18,11 @@
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:security": "vitest run --config vitest.config.ts test/security",
-    "test:tool-capability": "vitest run --config vitest.config.ts test/tools/tool-capability.test.ts"
+    "test:tool-capability": "vitest run --config vitest.config.ts test/tools/tool-capability.test.ts",
+    "setup:modules": "cd module/llm-tools && npm install && npm run build"
   },
   "dependencies": {
+    "llm-tools": "file:./module/llm-tools",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@huggingface/transformers": "^4.1.0",
