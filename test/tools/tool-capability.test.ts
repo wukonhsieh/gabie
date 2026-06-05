@@ -10,8 +10,13 @@
  *   LLM_MODEL=mlx-community/gemma-4-e2b-it-4bit \
  *   npx vitest run test/tools/tool-capability.test.ts
  *
+ * Thinking is disabled by default because these tests inspect tool-action
+ * formatting, not reasoning quality. To test with thinking enabled:
+ *   LLM_ENABLE_THINKING=true npm run test:tool-capability
+ *
  * Repeat with:
  *   LLM_MODEL=mlx-community/gemma-4-e4b-it-4bit
+ *   LLM_MODEL=mlx-community/gemma-4-12B-it-4bit
  *   LLM_MODEL=unsloth/gemma-4-26b-a4b-it-UD-MLX-4bit
  *   LLM_MODEL=unsloth/gemma-4-31b-it-UD-MLX-4bit
  *
@@ -26,6 +31,7 @@ import { findNextAction, chatSystemPrompt, codeSystemPrompt } from '../../src/ma
 
 const LLM_URL = process.env.LLM_URL
 const LLM_MODEL = process.env.LLM_MODEL ?? ''
+const LLM_ENABLE_THINKING = process.env.LLM_ENABLE_THINKING === 'true'
 
 const describeIfLLM = LLM_URL ? describe : describe.skip
 
@@ -35,7 +41,7 @@ const CODE_SYS = codeSystemPrompt('/workspace', 'http://localhost:3000')
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Call the currently-loaded LLM with a system + user message, non-streaming. */
+/** Call the currently-loaded LLM with a system + user message using the app's streaming path. */
 async function callLLM(
   systemPrompt: string,
   userContent: string,
@@ -51,12 +57,39 @@ async function callLLM(
         { role: 'user', content: userContent }
       ],
       max_tokens: maxTokens,
-      temperature: 0.0
+      temperature: 0.0,
+      enable_thinking: LLM_ENABLE_THINKING,
+      stream: true
     })
   })
   if (!res.ok) throw new Error(`LLM request failed: ${res.status} ${res.statusText}`)
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return data.choices?.[0]?.message?.content ?? ''
+  const raw = await res.text()
+  return collectStreamingContent(raw)
+}
+
+function collectStreamingContent(raw: string): string {
+  let content = ''
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.startsWith('data: ')) continue
+    const payload = line.slice(6).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const event = JSON.parse(payload) as {
+        choices?: Array<{
+          delta?: {
+            content?: string | null
+            reasoning?: string | null
+            reasoning_content?: string | null
+          }
+        }>
+      }
+      const delta = event.choices?.[0]?.delta
+      content += delta?.reasoning ?? delta?.reasoning_content ?? delta?.content ?? ''
+    } catch {
+      // Ignore malformed SSE events; the test assertions fail if no action remains.
+    }
+  }
+  return content
 }
 
 /**

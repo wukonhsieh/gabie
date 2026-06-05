@@ -6,6 +6,8 @@ Run with:
 npm run test:security
 ```
 
+This script intentionally runs only `test/security/*.test.ts`. Use `npm test` for the full Vitest suite.
+
 ## Test files
 
 | File | Tests | What it covers |
@@ -20,7 +22,7 @@ npm run test:security
 Start the MLX server, then:
 
 ```bash
-LLM_URL=http://127.0.0.1:10240/v1 LLM_MODEL=gemma npm run test:security
+LLM_URL=http://127.0.0.1:11434/v1 LLM_MODEL=<model-id> npm run test:security
 ```
 
 ## Network and shell safety

@@ -15,7 +15,9 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "test:security": "vitest run --config vitest.config.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:security": "vitest run --config vitest.config.ts test/security",
     "test:tool-capability": "vitest run --config vitest.config.ts test/tools/tool-capability.test.ts"
   },
   "dependencies": {
