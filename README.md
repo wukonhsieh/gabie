@@ -47,9 +47,9 @@ Most AI agent tools have large tool schemas that are too computationally heavy f
 
 | Model | Tools Ability | Skills Ability | Security Tests |
 |---|---|---|---|
-| Gemma 4 E2B | 3 failed | -- | Test Files 4/4 passed / Tests 78/78 passed |
-| Gemma 4 E4B | ALL PASSED | ★★★☆☆ | Test Files 4/4 passed / Tests 78/78 passed |
-| Gemma 4 12B | -- | -- | -- |
+| Gemma 4 E2B | 2 failed | -- | Test Files 4/4 passed / Tests 78/78 passed |
+| Gemma 4 E4B | 3 failed | ★★★☆☆ | Test Files 4/4 passed / Tests 78/78 passed |
+| Gemma 4 12B | 22 failed | -- | Test Files 4/4 passed / Tests 78/78 passed  |
 | Gemma 4 27B MoE | ALL PASSED | ★★★★☆ | Test Files 4/4 passed / Tests 78/78 passed |
 | Gemma 4 31B | ALL PASSED | ★★★★★ | Test Files 4/4 passed / Tests 78/78 passed |
 | (more models in the future ...) | -- | -- | -- |
