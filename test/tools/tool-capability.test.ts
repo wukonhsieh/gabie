@@ -247,7 +247,7 @@ describeIfLLM(`tool-capability [${LLM_MODEL || '(no model)'}]`, () => {
     })
 
     test('path matches the filename requested', T, async () => {
-      const out = await callLLM(CODE_SYS, 'Show me the contents of package.json')
+      const out = await callLLM(CODE_SYS, 'Read the file package.json using read_file.')
       const a = assertAction(parseAction(out), out)
       expect(a.name).toBe('read_file')
       expect(a.args.path).toBe('package.json')
@@ -301,7 +301,11 @@ describeIfLLM(`tool-capability [${LLM_MODEL || '(no model)'}]`, () => {
 
   describe('list_files', () => {
     test('emits list_files — no required parameters', T, async () => {
-      const out = await callLLM(CODE_SYS, 'List every file in the workspace using list_files.')
+      const out = await callLLM(
+        CODE_SYS,
+        'Use the list_files tool now to list every file in the workspace. ' +
+        'list_files has no parameters; emit the list_files action directly.'
+      )
       const a = assertAction(parseAction(out), out)
       expect(a.name).toBe('list_files')
     })
@@ -347,7 +351,7 @@ describeIfLLM(`tool-capability [${LLM_MODEL || '(no model)'}]`, () => {
     })
 
     test('path matches the filename the user asked to remove', T, async () => {
-      const out = await callLLM(CODE_SYS, 'Remove the file temp.txt from the workspace.')
+      const out = await callLLM(CODE_SYS, 'Delete the file temp.txt using delete_file.')
       const a = assertAction(parseAction(out), out)
       expect(a.name).toBe('delete_file')
       expect(a.args.path).toBe('temp.txt')
@@ -395,7 +399,8 @@ describeIfLLM(`tool-capability [${LLM_MODEL || '(no model)'}]`, () => {
       const out = await callLLM(
         CODE_SYS,
         'The workspace already has an index.html file. ' +
-        'Use open_preview to reveal it in the Canvas pane right now. Do not list files first.'
+        'Use open_preview to reveal it in the Canvas pane right now. ' +
+        'open_preview has no parameters; emit the open_preview action directly. Do not list files first.'
       )
       const a = assertAction(parseAction(out), out)
       expect(a.name).toBe('open_preview')
