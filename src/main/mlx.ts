@@ -406,7 +406,7 @@ export async function startServer(
 
   // Wait for the server to become healthy.
   // First run downloads model weights from HuggingFace, so allow up to 10 min.
-  await waitForHealth(600_000, () => earlyExit)
+  await waitForHealth(600_000, model, () => earlyExit)
   progressDone = true
 }
 
@@ -450,11 +450,15 @@ export function stopServer(): Promise<void> {
 }
 
 /**
- * Poll the server's /v1/models endpoint until it responds.
+ * Poll the server's /v1/models endpoint until the expected model appears in the
+ * response. Verifying the model name (not just HTTP 200) prevents a false-healthy
+ * result when another OpenAI-compatible server such as Ollama is already bound to
+ * the same port (11434 is Ollama's default).
  * If the server process exits early, throw immediately.
  */
 async function waitForHealth(
   timeoutMs: number,
+  expectedModel: string,
   checkEarlyExit: () => { code: number | null; stderr: string } | null
 ): Promise<void> {
   const start = Date.now()
@@ -472,8 +476,16 @@ async function waitForHealth(
     try {
       const res = await fetch(`${MLX_URL}/v1/models`)
       if (res.ok) {
-        console.log('[mlx] Server is healthy')
-        return
+        const body = (await res.json()) as { data?: Array<{ id: string }> }
+        const ids = (body.data ?? []).map((m) => m.id)
+        if (ids.includes(expectedModel)) {
+          console.log('[mlx] Server is healthy')
+          return
+        }
+        console.log(
+          `[mlx] /v1/models responded but "${expectedModel}" not yet listed — waiting` +
+            ` (another server on port ${MLX_PORT}?)`
+        )
       }
     } catch (e) {
       lastError = e
