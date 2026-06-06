@@ -1,6 +1,6 @@
-export const TEXT_WINDOW_CHARS = 800
+export const TEXT_WINDOW_CHARS = 1800   // must be >= TEXT_MAX_PERIOD * TEXT_REPEAT_THRESHOLD
 export const TEXT_MIN_PERIOD = 20
-export const TEXT_MAX_PERIOD = 300
+export const TEXT_MAX_PERIOD = 600      // covers thinking planning blocks (~350-500 chars each)
 export const TEXT_REPEAT_THRESHOLD = 3
 
 /**
