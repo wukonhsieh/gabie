@@ -148,7 +148,7 @@ export default function Message({ message, streaming, onRegenerate, searchQuery,
       <img src={gemmaLogoUrl} alt="Gemma" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
       <div className="selectable min-w-0 flex-1">
         {parsed.thinking && (
-          <ThinkingBlock content={parsed.thinking} inProgress={parsed.thinkingInProgress} />
+          <ThinkingBlock content={parsed.thinking} inProgress={parsed.thinkingInProgress && !message.done} />
         )}
 
         {message.toolCalls?.map((tc) => (

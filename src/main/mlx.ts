@@ -606,7 +606,10 @@ export async function* chatStream(
   let reasoningOpen = false
 
   for await (const chunk of client.chat(messages)) {
-    if (opts.signal?.aborted) return
+    if (opts.signal?.aborted) {
+      if (reasoningOpen) yield { content: '</think>\n' }
+      return
+    }
 
     if (typeof chunk === 'string') {
       if (reasoningOpen) {
