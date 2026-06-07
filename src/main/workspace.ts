@@ -1,15 +1,15 @@
 import { app } from 'electron'
 import { createServer, type Server } from 'http'
 import { createReadStream } from 'fs'
-import { mkdir, readFile, writeFile, readdir, stat, access, rm, rename } from 'fs/promises'
-import { join, resolve, dirname, extname, isAbsolute } from 'path'
-import { randomUUID } from 'crypto'
+import { mkdir, readFile, readdir, stat, access } from 'fs/promises'
+import { join, resolve, extname, isAbsolute } from 'path'
 import {
   isBashCommandDenied,
   isResolvedPathInside,
   wsRunBash as llmWsRunBash,
   wsWriteFile as llmWsWriteFile,
   wsReadFile as llmWsReadFile,
+  wsEditFile as llmWsEditFile,
   wsDeleteFile as llmWsDeleteFile,
   type BashResult,
   type SpawnFn
@@ -442,22 +442,7 @@ export async function wsWriteFile(
   content: string,
   options: WorkspaceAccessOptions = {}
 ): Promise<string> {
-  const base = workspaceDir(conversationId)
-  if (options.allowOutsideWorkspace) {
-    const classification = classifyPathAgainstWorkspace(base, path)
-    const target = classification.resolvedPath
-    await mkdir(dirname(target), { recursive: true })
-    const tmp = `${target}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, content, 'utf-8')
-      await rename(tmp, target)
-    } catch (err) {
-      await rm(tmp, { force: true }).catch(() => {})
-      throw new Error(`write_file failed for ${path}: ${(err as Error).message}`)
-    }
-    return target
-  }
-  return llmWsWriteFile(base, path, content)
+  return llmWsWriteFile(workspaceDir(conversationId), path, content, options)
 }
 
 export async function wsReadFile(
@@ -465,12 +450,7 @@ export async function wsReadFile(
   path: string,
   options: WorkspaceAccessOptions = {}
 ): Promise<string> {
-  const base = workspaceDir(conversationId)
-  if (options.allowOutsideWorkspace) {
-    const classification = classifyPathAgainstWorkspace(base, path)
-    return readFile(classification.resolvedPath, 'utf-8')
-  }
-  return llmWsReadFile(base, path)
+  return llmWsReadFile(workspaceDir(conversationId), path, options)
 }
 
 export async function wsEditFile(
@@ -481,23 +461,7 @@ export async function wsEditFile(
   replaceAll = false,
   options: WorkspaceAccessOptions = {}
 ): Promise<{ occurrences: number }> {
-  const content = await wsReadFile(conversationId, path, options)
-  if (replaceAll) {
-    const parts = content.split(oldString)
-    if (parts.length === 1) throw new Error(`old_string not found in ${path}`)
-    const next = parts.join(newString)
-    await wsWriteFile(conversationId, path, next, options)
-    return { occurrences: parts.length - 1 }
-  }
-  const idx = content.indexOf(oldString)
-  if (idx < 0) throw new Error(`old_string not found in ${path}`)
-  const second = content.indexOf(oldString, idx + oldString.length)
-  if (second >= 0) {
-    throw new Error(`old_string appears multiple times in ${path}. Use replace_all or add context.`)
-  }
-  const next = content.slice(0, idx) + newString + content.slice(idx + oldString.length)
-  await wsWriteFile(conversationId, path, next, options)
-  return { occurrences: 1 }
+  return llmWsEditFile(workspaceDir(conversationId), path, oldString, newString, replaceAll, options)
 }
 
 export async function wsDeleteFile(
@@ -505,13 +469,7 @@ export async function wsDeleteFile(
   path: string,
   options: WorkspaceAccessOptions = {}
 ): Promise<void> {
-  const base = workspaceDir(conversationId)
-  if (options.allowOutsideWorkspace) {
-    const classification = classifyPathAgainstWorkspace(base, path)
-    await rm(classification.resolvedPath, { recursive: true, force: true })
-    return
-  }
-  return llmWsDeleteFile(base, path)
+  return llmWsDeleteFile(workspaceDir(conversationId), path, options)
 }
 
 export async function wsRunBash(

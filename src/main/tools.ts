@@ -1,29 +1,26 @@
-import {
-  wsWriteFile,
-  wsReadFile,
-  wsEditFile,
-  wsDeleteFile,
-  wsRunBash,
-  ensureWorkspace,
-  listTree,
-  findFiles,
-  previewUrl
-} from './workspace'
+import { previewUrl } from './workspace'
 import {
   parseToolCall,
   emitSafeBoundary,
   webSearchTool,
   webFetchTool,
   calcTool,
+  fileWriteTool,
+  fileReadTool,
+  fileEditTool,
+  fileListTool,
+  fileFindTool,
+  fileDeleteTool,
+  bashTool,
   type ParsedToolCall
 } from 'llm-tools'
 
 export { parseToolCall as findNextAction, emitSafeBoundary }
 export type ParsedAction = ParsedToolCall
 
-const _LLM_CTX = { workspacePath: '' }
-
 export interface ToolContext {
+  /** Absolute path to the conversation workspace; pre-resolved by the call site. */
+  workspacePath: string
   conversationId: string
   onFileChange?: () => void
   allowOutsideWorkspace?: boolean
@@ -42,17 +39,9 @@ export interface ToolSpec {
 }
 
 
-async function writeFile(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const path = String(args.path ?? '').trim()
-  const raw = typeof args.content === 'string' ? args.content : ''
-  if (!path) return 'Error: missing <path>'
-  const content = cleanFileContent(raw, path)
-  await wsWriteFile(ctx.conversationId, path, content, {
-    allowOutsideWorkspace: ctx.allowOutsideWorkspace
-  })
-  ctx.onFileChange?.()
-  const lines = content.split('\n').length
-  return `Wrote ${path} (${content.length} bytes, ${lines} lines).`
+/** Extract the subset of ToolContext that llm-tools tool functions expect. */
+function llmCtx(ctx: ToolContext) {
+  return { workspacePath: ctx.workspacePath, onFileChange: ctx.onFileChange, allowOutsideWorkspace: ctx.allowOutsideWorkspace }
 }
 
 export function cleanFileContent(raw: string, path: string): string {
@@ -91,102 +80,6 @@ export function cleanFileContent(raw: string, path: string): string {
   return s
 }
 
-async function readFile(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const path = String(args.path ?? '').trim()
-  if (!path) return 'Error: missing <path>'
-  try {
-    const content = await wsReadFile(ctx.conversationId, path, {
-      allowOutsideWorkspace: ctx.allowOutsideWorkspace
-    })
-    if (content.length > 20_000) {
-      return content.slice(0, 20_000) + '\n[…truncated]'
-    }
-    return content
-  } catch (e) {
-    return `Error reading ${path}: ${(e as Error).message}`
-  }
-}
-
-async function editFile(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const path = String(args.path ?? '').trim()
-  const oldStr = typeof args.old_string === 'string' ? args.old_string : ''
-  const newStr = typeof args.new_string === 'string' ? args.new_string : ''
-  const replaceAll = args.replace_all === true || args.replace_all === 'true'
-  if (!path) return 'Error: missing <path>'
-  if (!oldStr) return 'Error: missing <old_string>'
-  try {
-    const r = await wsEditFile(ctx.conversationId, path, oldStr, newStr, replaceAll, {
-      allowOutsideWorkspace: ctx.allowOutsideWorkspace
-    })
-    ctx.onFileChange?.()
-    return `Edited ${path} (${r.occurrences} replacement${r.occurrences === 1 ? '' : 's'}).`
-  } catch (e) {
-    return `Error editing ${path}: ${(e as Error).message}`
-  }
-}
-
-async function listFiles(
-  _args: Record<string, unknown>,
-  ctx: ToolContext
-): Promise<string> {
-  const base = await ensureWorkspace(ctx.conversationId)
-  const tree = await listTree(base, 200)
-  if (tree.length === 0) return '(workspace is empty)'
-  return tree
-    .map((e) =>
-      e.kind === 'dir' ? `${e.path}/` : `${e.path}${e.size != null ? ` (${e.size}B)` : ''}`
-    )
-    .join('\n')
-}
-
-async function findFile(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const pattern = String(args.pattern ?? '').trim()
-  if (!pattern) return 'Error: missing <pattern>'
-  const rawLimit = typeof args.limit === 'number' ? args.limit : Number(args.limit)
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 50
-  const includeHidden = args.include_hidden === true || args.include_hidden === 'true'
-  const includeIgnored = args.include_ignored === true || args.include_ignored === 'true'
-  const base = await ensureWorkspace(ctx.conversationId)
-  const r = await findFiles(base, { pattern, limit, includeHidden, includeIgnored })
-  if (r.matches.length === 0) return `(no files matching "${pattern}")`
-  const lines = [...r.matches]
-  if (r.truncated) {
-    lines.push(`... (truncated, ${r.total - r.matches.length} more match${r.total - r.matches.length === 1 ? '' : 'es'}; refine pattern or raise limit)`)
-  }
-  return lines.join('\n')
-}
-
-async function deleteFile(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const path = String(args.path ?? '').trim()
-  if (!path) return 'Error: missing <path>'
-  try {
-    await wsDeleteFile(ctx.conversationId, path, {
-      allowOutsideWorkspace: ctx.allowOutsideWorkspace
-    })
-    ctx.onFileChange?.()
-    return `Deleted ${path}.`
-  } catch (e) {
-    return `Error deleting ${path}: ${(e as Error).message}`
-  }
-}
-
-async function runBash(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const command = String(args.command ?? '').trim()
-  const timeout = typeof args.timeout_ms === 'number' ? args.timeout_ms : 60_000
-  if (!command) return 'Error: missing <command>'
-  try {
-    const r = await wsRunBash(ctx.conversationId, command, timeout)
-    ctx.onFileChange?.()
-    const parts: string[] = []
-    parts.push(`exit=${r.exitCode ?? 'killed'} (${r.durationMs}ms)`)
-    if (r.stdout) parts.push('stdout:\n' + r.stdout)
-    if (r.stderr) parts.push('stderr:\n' + r.stderr)
-    if (r.truncated) parts.push('[output was truncated]')
-    return parts.join('\n')
-  } catch (e) {
-    return `Error: ${(e as Error).message}`
-  }
-}
 
 async function openPreview(_args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const url = previewUrl(ctx.conversationId)
@@ -200,7 +93,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'query', description: 'what to search for', required: true }],
     example: '@@web_search\nquery: latest tensorflow release notes\n@@end',
     mode: 'both',
-    run: (args) => webSearchTool.run(args, _LLM_CTX)
+    run: (args, ctx) => webSearchTool.run(args, llmCtx(ctx))
   },
   fetch_url: {
     name: 'fetch_url',
@@ -208,7 +101,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'url', description: 'absolute http(s) URL', required: true }],
     example: '@@fetch_url\nurl: https://example.com\n@@end',
     mode: 'both',
-    run: (args) => webFetchTool.run(args, _LLM_CTX)
+    run: (args, ctx) => webFetchTool.run(args, llmCtx(ctx))
   },
   calc: {
     name: 'calc',
@@ -216,7 +109,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'expression', description: 'math expression', required: true }],
     example: '@@calc\nexpression: 2 + 2 * 3\n@@end',
     mode: 'both',
-    run: (args) => calcTool.run(args, _LLM_CTX)
+    run: (args, ctx) => calcTool.run(args, llmCtx(ctx))
   },
   write_file: {
     name: 'write_file',
@@ -229,7 +122,13 @@ export const TOOLS: Record<string, ToolSpec> = {
     example:
       '@@write_file\npath: index.html\ncontent <<EOF\n<!doctype html>\n<html>\n<body>Hello</body>\n</html>\nEOF\n@@end',
     mode: 'code',
-    run: writeFile
+    run: (args, ctx) => {
+      // cleanFileContent is gabie-specific: strips markdown fences and trailing commentary.
+      const path = String(args.path ?? '').trim()
+      const raw = typeof args.content === 'string' ? args.content : ''
+      const content = cleanFileContent(raw, path)
+      return fileWriteTool.run({ ...args, content }, llmCtx(ctx))
+    }
   },
   read_file: {
     name: 'read_file',
@@ -237,7 +136,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'path', description: 'path relative to workspace', required: true }],
     example: '@@read_file\npath: index.html\n@@end',
     mode: 'code',
-    run: readFile
+    run: (args, ctx) => fileReadTool.run(args, llmCtx(ctx))
   },
   edit_file: {
     name: 'edit_file',
@@ -252,7 +151,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     example:
       '@@edit_file\npath: index.html\nold_string <<OLD\nHello\nOLD\nnew_string <<NEW\nHello, world\nNEW\n@@end',
     mode: 'code',
-    run: editFile
+    run: (args, ctx) => fileEditTool.run(args, llmCtx(ctx))
   },
   list_files: {
     name: 'list_files',
@@ -260,7 +159,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [],
     example: '@@list_files\n@@end',
     mode: 'code',
-    run: listFiles
+    run: (_args, ctx) => fileListTool.run(_args, llmCtx(ctx))
   },
   find_file: {
     name: 'find_file',
@@ -274,7 +173,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     ],
     example: '@@find_file\npattern: **/*.tsx\n@@end',
     mode: 'code',
-    run: findFile
+    run: (args, ctx) => fileFindTool.run(args, llmCtx(ctx))
   },
   delete_file: {
     name: 'delete_file',
@@ -282,7 +181,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     params: [{ name: 'path', description: 'path to delete', required: true }],
     example: '@@delete_file\npath: old.html\n@@end',
     mode: 'code',
-    run: deleteFile
+    run: (args, ctx) => fileDeleteTool.run(args, llmCtx(ctx))
   },
   run_bash: {
     name: 'run_bash',
@@ -293,7 +192,7 @@ export const TOOLS: Record<string, ToolSpec> = {
     ],
     example: '@@run_bash\ncommand: ls -la\n@@end',
     mode: 'code',
-    run: runBash
+    run: (args, ctx) => bashTool.run(args, llmCtx(ctx))
   },
   open_preview: {
     name: 'open_preview',
