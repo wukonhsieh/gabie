@@ -23,37 +23,37 @@ const THINKING_STRATEGIES: Record<string, ThinkingStrategy> = {
   'mlx-community/gemma-4-e2b-it-4bit': {
     trigger: { kind: 'system-token', token: '<|think|>' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 12288
   },
   'mlx-community/gemma-4-e4b-it-4bit': {
     trigger: { kind: 'system-token', token: '<|think|>' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 12288
   },
   'mlx-community/gemma-4-12B-it-4bit': {
     trigger: { kind: 'top-level-flag', key: 'enable_thinking' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 12288
   },
   'mlx-community/gemma-4-26b-a4b-it-4bit': {
     trigger: { kind: 'always-on' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 16384
   },
   'mlx-community/gemma-4-31b-it-4bit': {
     trigger: { kind: 'always-on' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 16384
   },
   'unsloth/gemma-4-26b-a4b-it-UD-MLX-4bit': {
     trigger: { kind: 'always-on' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 16384
   },
   'unsloth/gemma-4-31b-it-UD-MLX-4bit': {
     trigger: { kind: 'always-on' },
     parser: { kind: 'reasoning-field' },
-    recommendedMaxTokens: 8192
+    recommendedMaxTokens: 16384
   }
 }
 

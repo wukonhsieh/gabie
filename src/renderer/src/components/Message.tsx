@@ -29,17 +29,33 @@ interface Parsed {
 export function parseThinking(content: string): Parsed {
   const openRe = /<think(?:ing)?>/
   const closeRe = /<\/think(?:ing)?>/
-  const openMatch = content.match(openRe)
-  if (!openMatch) return { thinking: '', thinkingInProgress: false, visible: content }
-  const before = content.slice(0, openMatch.index!)
-  const after = content.slice(openMatch.index! + openMatch[0].length)
-  const closeMatch = after.match(closeRe)
-  if (!closeMatch) {
-    return { thinking: after, thinkingInProgress: true, visible: before }
+  const parts: string[] = []
+  let remaining = content
+
+  while (true) {
+    const openMatch = remaining.match(openRe)
+    if (!openMatch) break
+    const before = remaining.slice(0, openMatch.index!)
+    const afterOpen = remaining.slice(openMatch.index! + openMatch[0].length)
+    const closeMatch = afterOpen.match(closeRe)
+    if (!closeMatch) {
+      // Unclosed block — still streaming
+      parts.push(afterOpen)
+      return {
+        thinking: parts.join('\n\n'),
+        thinkingInProgress: true,
+        visible: before.trim()
+      }
+    }
+    parts.push(afterOpen.slice(0, closeMatch.index!))
+    remaining = before + afterOpen.slice(closeMatch.index! + closeMatch[0].length)
   }
-  const thinking = after.slice(0, closeMatch.index!)
-  const rest = after.slice(closeMatch.index! + closeMatch[0].length)
-  return { thinking, thinkingInProgress: false, visible: (before + rest).trim() }
+
+  return {
+    thinking: parts.join('\n\n'),
+    thinkingInProgress: false,
+    visible: remaining.trim()
+  }
 }
 
 function highlightText(
@@ -132,7 +148,7 @@ export default function Message({ message, streaming, onRegenerate, searchQuery,
       <img src={gemmaLogoUrl} alt="Gemma" className="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
       <div className="selectable min-w-0 flex-1">
         {parsed.thinking && (
-          <ThinkingBlock content={parsed.thinking} inProgress={parsed.thinkingInProgress} />
+          <ThinkingBlock content={parsed.thinking} inProgress={parsed.thinkingInProgress && !message.done} />
         )}
 
         {message.toolCalls?.map((tc) => (

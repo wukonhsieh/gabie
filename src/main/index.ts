@@ -52,12 +52,16 @@ import {
   normalizeChatState,
   saveChatStateToDisk
 } from './conversations'
-import { scanAllSkills, type ScopeEntry } from './skills/scanner'
+import {
+  scanAllSkills,
+  type ScopeEntry,
+  detectSkillInvocation,
+  loadSkill,
+  type LoadedSkillsRegistry,
+  type SkillIndex
+} from 'llm-tools'
 import { writeSkillArtifacts, buildSkillCatalogFromIndex } from './skills/indexer'
-import { detectSkillInvocation } from './skills/detector'
 import { stripThinkingFromContent } from './skills/thinking-strategies'
-import { loadSkill, type LoadedSkillsRegistry } from './skills/loader'
-import type { SkillIndex } from './skills/types'
 import {
   SETTINGS_CHANNELS,
   type ChatRequest,
@@ -511,6 +515,7 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
     }
 
     const ctx: ToolContext = {
+      workspacePath: workspaceDir(req.conversationId),
       conversationId: req.conversationId,
       onFileChange: () => send('workspace:changed', { conversationId: req.conversationId }),
       skillNames: new Set(skillState.index.skills.map((s) => s.name))

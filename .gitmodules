@@ -1,3 +1,6 @@
 [submodule ".cortex"]
 	path = .cortex
 	url = git@github.com:wukonhsieh/gemma-chat-cortex.git
+[submodule "module/llm-tools"]
+	path = module/llm-tools
+	url = git@github.com:wukonhsieh/llm-tools.git

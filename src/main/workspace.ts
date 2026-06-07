@@ -1,10 +1,22 @@
 import { app } from 'electron'
 import { createServer, type Server } from 'http'
 import { createReadStream } from 'fs'
-import { mkdir, readFile, writeFile, readdir, stat, access, rm, rename } from 'fs/promises'
-import { join, resolve, dirname, extname, relative, sep, isAbsolute } from 'path'
-import { spawn } from 'child_process'
-import { randomUUID } from 'crypto'
+import { mkdir, readFile, readdir, stat, access } from 'fs/promises'
+import { join, resolve, extname, isAbsolute } from 'path'
+import {
+  isBashCommandDenied,
+  isResolvedPathInside,
+  wsRunBash as llmWsRunBash,
+  wsWriteFile as llmWsWriteFile,
+  wsReadFile as llmWsReadFile,
+  wsEditFile as llmWsEditFile,
+  wsDeleteFile as llmWsDeleteFile,
+  type BashResult,
+  type SpawnFn
+} from 'llm-tools'
+
+export { isBashCommandDenied, isResolvedPathInside }
+export type { BashResult, SpawnFn }
 
 let server: Server | null = null
 let serverPort = 0
@@ -96,12 +108,6 @@ export function classifyPathAgainstWorkspace(
     requiresAsk,
     reason
   }
-}
-
-export function isResolvedPathInside(workspaceRoot: string, resolvedPath: string): boolean {
-  const root = resolve(workspaceRoot)
-  const rel = relative(root, resolvedPath)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel) && !rel.includes('..' + sep))
 }
 
 const MIME: Record<string, string> = {
@@ -426,40 +432,17 @@ export async function findFiles(base: string, opts: FindFilesOptions): Promise<F
   return { matches, truncated: total > matches.length, total }
 }
 
+export interface WorkspaceAccessOptions {
+  allowOutsideWorkspace?: boolean
+}
+
 export async function wsWriteFile(
   conversationId: string,
   path: string,
   content: string,
   options: WorkspaceAccessOptions = {}
 ): Promise<string> {
-  const base = await ensureWorkspace(conversationId)
-  const target = resolveWorkspaceAccessPath(base, path, options)
-  await mkdir(dirname(target), { recursive: true })
-  const tmp = `${target}.tmp-${process.pid}-${randomUUID()}`
-  try {
-    await writeFile(tmp, content, 'utf-8')
-    await rename(tmp, target)
-  } catch (err) {
-    await rm(tmp, { force: true }).catch(() => {})
-    throw new Error(`write_file failed for ${path}: ${(err as Error).message}`)
-  }
-  return target
-}
-
-export interface WorkspaceAccessOptions {
-  allowOutsideWorkspace?: boolean
-}
-
-function resolveWorkspaceAccessPath(
-  workspaceRoot: string,
-  path: string,
-  options: WorkspaceAccessOptions
-): string {
-  const classification = classifyPathAgainstWorkspace(workspaceRoot, path)
-  if (classification.withinWorkspace || options.allowOutsideWorkspace === true) {
-    return classification.resolvedPath
-  }
-  throw new Error(`Path escapes workspace: ${path}`)
+  return llmWsWriteFile(workspaceDir(conversationId), path, content, options)
 }
 
 export async function wsReadFile(
@@ -467,9 +450,7 @@ export async function wsReadFile(
   path: string,
   options: WorkspaceAccessOptions = {}
 ): Promise<string> {
-  const base = await ensureWorkspace(conversationId)
-  const target = resolveWorkspaceAccessPath(base, path, options)
-  return readFile(target, 'utf-8')
+  return llmWsReadFile(workspaceDir(conversationId), path, options)
 }
 
 export async function wsEditFile(
@@ -480,23 +461,7 @@ export async function wsEditFile(
   replaceAll = false,
   options: WorkspaceAccessOptions = {}
 ): Promise<{ occurrences: number }> {
-  const content = await wsReadFile(conversationId, path, options)
-  if (replaceAll) {
-    const parts = content.split(oldString)
-    if (parts.length === 1) throw new Error(`old_string not found in ${path}`)
-    const next = parts.join(newString)
-    await wsWriteFile(conversationId, path, next, options)
-    return { occurrences: parts.length - 1 }
-  }
-  const idx = content.indexOf(oldString)
-  if (idx < 0) throw new Error(`old_string not found in ${path}`)
-  const second = content.indexOf(oldString, idx + oldString.length)
-  if (second >= 0) {
-    throw new Error(`old_string appears multiple times in ${path}. Use replace_all or add context.`)
-  }
-  const next = content.slice(0, idx) + newString + content.slice(idx + oldString.length)
-  await wsWriteFile(conversationId, path, next, options)
-  return { occurrences: 1 }
+  return llmWsEditFile(workspaceDir(conversationId), path, oldString, newString, replaceAll, options)
 }
 
 export async function wsDeleteFile(
@@ -504,24 +469,7 @@ export async function wsDeleteFile(
   path: string,
   options: WorkspaceAccessOptions = {}
 ): Promise<void> {
-  const base = await ensureWorkspace(conversationId)
-  const target = resolveWorkspaceAccessPath(base, path, options)
-  await rm(target, { recursive: true, force: true })
-}
-
-export interface BashResult {
-  exitCode: number | null
-  stdout: string
-  stderr: string
-  truncated: boolean
-  durationMs: number
-}
-
-const BASH_DENY =
-  /\b(rm\s+-rf\s+\/|sudo|chmod\s+777\s+\/|mkfs|dd\s+if=|shutdown|reboot)|:\(\)\s*\{|\b(curl|wget|nc|ncat|netcat|socat|telnet)\b/i
-
-export function isBashCommandDenied(command: string): boolean {
-  return BASH_DENY.test(command)
+  return llmWsDeleteFile(workspaceDir(conversationId), path, options)
 }
 
 export async function wsRunBash(
@@ -530,62 +478,5 @@ export async function wsRunBash(
   timeoutMs = 60000,
   maxBytes = 16000
 ): Promise<BashResult> {
-  if (isBashCommandDenied(command)) {
-    throw new Error('Blocked by safety policy: command contains a denied pattern.')
-  }
-  const base = await ensureWorkspace(conversationId)
-  const start = Date.now()
-
-  return new Promise((resolve) => {
-    const proc = spawn('/bin/bash', ['-lc', command], {
-      cwd: base,
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
-    })
-    let stdout = ''
-    let stderr = ''
-    let truncated = false
-    const killTimer = setTimeout(() => {
-      proc.kill('SIGKILL')
-      truncated = true
-    }, timeoutMs)
-
-    proc.stdout.on('data', (d: Buffer) => {
-      if (stdout.length < maxBytes) {
-        stdout += d.toString('utf-8')
-        if (stdout.length >= maxBytes) {
-          stdout = stdout.slice(0, maxBytes) + '\n[…output truncated]'
-          truncated = true
-        }
-      }
-    })
-    proc.stderr.on('data', (d: Buffer) => {
-      if (stderr.length < maxBytes) {
-        stderr += d.toString('utf-8')
-        if (stderr.length >= maxBytes) {
-          stderr = stderr.slice(0, maxBytes) + '\n[…stderr truncated]'
-          truncated = true
-        }
-      }
-    })
-    proc.on('close', (code) => {
-      clearTimeout(killTimer)
-      resolve({
-        exitCode: code,
-        stdout,
-        stderr,
-        truncated,
-        durationMs: Date.now() - start
-      })
-    })
-    proc.on('error', (e) => {
-      clearTimeout(killTimer)
-      resolve({
-        exitCode: -1,
-        stdout,
-        stderr: (stderr + '\n' + String(e)).trim(),
-        truncated,
-        durationMs: Date.now() - start
-      })
-    })
-  })
+  return llmWsRunBash(workspaceDir(conversationId), command, timeoutMs, maxBytes)
 }
