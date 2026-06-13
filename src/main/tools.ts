@@ -24,6 +24,10 @@ export interface ToolContext {
   conversationId: string
   onFileChange?: () => void
   allowOutsideWorkspace?: boolean
+  /** Cancels in-flight tool work (bash subprocess, web fetch/search). Forwarded
+   *  to the underlying llm-tools tool functions so a user stop aborts at the
+   *  subprocess / network layer, not just between agent-loop rounds. */
+  signal?: AbortSignal
   /** Names of skills available in the current conversation, used to give a
    *  clearer error when the assistant mistakenly tries to call a skill as a tool. */
   skillNames?: ReadonlySet<string>
@@ -41,7 +45,7 @@ export interface ToolSpec {
 
 /** Extract the subset of ToolContext that llm-tools tool functions expect. */
 function llmCtx(ctx: ToolContext) {
-  return { workspacePath: ctx.workspacePath, onFileChange: ctx.onFileChange, allowOutsideWorkspace: ctx.allowOutsideWorkspace }
+  return { workspacePath: ctx.workspacePath, onFileChange: ctx.onFileChange, allowOutsideWorkspace: ctx.allowOutsideWorkspace, signal: ctx.signal }
 }
 
 export function cleanFileContent(raw: string, path: string): string {

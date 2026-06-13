@@ -520,6 +520,7 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
       workspacePath: workspaceDir(req.conversationId),
       conversationId: req.conversationId,
       onFileChange: () => send('workspace:changed', { conversationId: req.conversationId }),
+      signal: abort.signal,
       skillNames: new Set(skillState.index.skills.map((s) => s.name))
     }
 

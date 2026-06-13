@@ -605,32 +605,42 @@ export async function* chatStream(
 
   let reasoningOpen = false
 
-  for await (const chunk of client.chat(messages)) {
-    if (opts.signal?.aborted) {
+  try {
+    for await (const chunk of client.chat(messages, { signal: opts.signal })) {
+      if (opts.signal?.aborted) {
+        if (reasoningOpen) yield { content: '</think>\n' }
+        return
+      }
+
+      if (typeof chunk === 'string') {
+        if (reasoningOpen) {
+          yield { content: '</think>\n' }
+          reasoningOpen = false
+        }
+        yield { content: chunk }
+      } else if (chunk.type === 'activity' && chunk.kind === 'reasoning') {
+        if (!reasoningOpen) {
+          yield { content: '<think>' }
+          reasoningOpen = true
+        }
+        yield { content: chunk.content }
+      } else if (chunk.type === 'status') {
+        if (reasoningOpen) {
+          yield { content: '</think>\n' }
+          reasoningOpen = false
+        }
+        yield { done: true }
+        return
+      }
+    }
+  } catch (e) {
+    // 取消時底層 fetch 會丟出 AbortError；視為正常中止，補關 <think> 後結束，
+    // 避免 renderer 殘留未閉合 tag（issue #000043 invariant）。
+    if (opts.signal?.aborted || (e as { name?: string })?.name === 'AbortError') {
       if (reasoningOpen) yield { content: '</think>\n' }
       return
     }
-
-    if (typeof chunk === 'string') {
-      if (reasoningOpen) {
-        yield { content: '</think>\n' }
-        reasoningOpen = false
-      }
-      yield { content: chunk }
-    } else if (chunk.type === 'activity' && chunk.kind === 'reasoning') {
-      if (!reasoningOpen) {
-        yield { content: '<think>' }
-        reasoningOpen = true
-      }
-      yield { content: chunk.content }
-    } else if (chunk.type === 'status') {
-      if (reasoningOpen) {
-        yield { content: '</think>\n' }
-        reasoningOpen = false
-      }
-      yield { done: true }
-      return
-    }
+    throw e
   }
 
   if (reasoningOpen) {
