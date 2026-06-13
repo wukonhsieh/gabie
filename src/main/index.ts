@@ -791,6 +791,13 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
                 emit({ type: 'tool_result', id: call.id, error: result })
               } else {
                 allowOutsideWorkspace = permission.allowOutsideWorkspaceOnApproval === true
+                if (decision === 'allow-always') {
+                  // Persist to gabie.json so this tool resolves to 'allow' next time.
+                  // found.name is the policy/config key, so no name mapping is needed.
+                  await saveToolPermission(found.name, 'allow').catch((e) =>
+                    console.warn('Failed to persist allow-always permission:', e)
+                  )
+                }
               }
             }
 

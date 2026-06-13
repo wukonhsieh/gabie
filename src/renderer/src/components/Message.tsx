@@ -585,11 +585,18 @@ export function PermissionBanner({
         </div>
         <div className="flex shrink-0 gap-2">
           <button
-            onClick={() => respond('allow')}
+            onClick={() => respond('allow-once')}
             disabled={!!responding}
             className="rounded-md bg-emerald-500/15 px-3 py-1.5 text-[12px] font-medium text-emerald-200 transition hover:bg-emerald-500/25 disabled:cursor-default disabled:opacity-50"
           >
-            {responding === 'allow' ? 'Approving…' : 'Approve'}
+            {responding === 'allow-once' ? 'Approving…' : 'Approve'}
+          </button>
+          <button
+            onClick={() => respond('allow-always')}
+            disabled={!!responding}
+            className="rounded-md border border-emerald-500/25 px-3 py-1.5 text-[12px] font-medium text-emerald-300/90 transition hover:bg-emerald-500/15 disabled:cursor-default disabled:opacity-50"
+          >
+            {responding === 'allow-always' ? 'Saving…' : 'Always allow'}
           </button>
           <button
             onClick={() => respond('deny')}

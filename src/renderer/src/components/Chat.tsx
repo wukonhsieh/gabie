@@ -461,7 +461,7 @@ function ChatInner({
                   ...t,
                   permission: {
                     ...t.permission,
-                    status: decision === 'allow' ? 'approved' : 'denied'
+                    status: decision === 'deny' ? 'denied' : 'approved'
                   }
                 }
               : t

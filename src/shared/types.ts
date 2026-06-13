@@ -27,7 +27,7 @@ export interface ToolCall {
 
 export type ToolPermissionMode = 'deny' | 'ask' | 'allow'
 
-export type ToolPermissionResponseDecision = 'allow' | 'deny'
+export type ToolPermissionResponseDecision = 'allow-once' | 'allow-always' | 'deny'
 
 export interface ToolPermissionState {
   mode: ToolPermissionMode
