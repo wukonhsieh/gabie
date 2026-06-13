@@ -458,13 +458,14 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
     const lastUserMsg = lastUserIdx >= 0 ? req.messages[lastUserIdx] : undefined
     let skillInjection: string | null = null
     let skillError: string | null = null
-    let strippedLastUserContent: string | null = null
     let rewrittenLastUserContent: string | null = null
 
     if (lastUserMsg) {
-      const { skillName, strippedMessage } = detectSkillInvocation(lastUserMsg.content)
+      const invocableNames = skillState.index.skills
+        .filter((s) => s.userInvocable)
+        .map((s) => s.name)
+      const { skillName } = detectSkillInvocation(lastUserMsg.content, invocableNames)
       if (skillName) {
-        strippedLastUserContent = strippedMessage || lastUserMsg.content
         const result = await loadSkill(
           skillName,
           skillState.index,
@@ -473,7 +474,8 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
         )
         if (result.ok) {
           skillInjection = result.content
-          rewrittenLastUserContent = skillInjection + '\n\n---\n\n' + strippedLastUserContent
+          // 新偵測器不再 strip 訊息，$token 留在原處（符合 index-aware 設計）。
+          rewrittenLastUserContent = skillInjection + '\n\n---\n\n' + lastUserMsg.content
           const loadedEntry = skillState.index.skills.find((s) => s.name === skillName)
           if (loadedEntry) {
             registerAllowedSkillDir(req.conversationId, dirname(loadedEntry.path))
