@@ -801,6 +801,18 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
               }
             }
 
+            // Drain any in-flight live partial write before the authoritative
+            // full write. writeLivePartial keeps at most one partial in flight
+            // (it returns early while livePending is set), so awaiting it here
+            // guarantees runTool's rename lands last and cannot be overwritten
+            // by a late partial rename (issue #000053).
+            if (livePending) {
+              try {
+                await livePending
+              } catch {
+                /* tolerate partial write failures */
+              }
+            }
             try {
               if (shouldRunTool) {
                 result = await runTool(found.name, found.args, {
@@ -844,10 +856,17 @@ async function handleChat(req: ChatRequest, channel: string): Promise<void> {
               }
             }
             if (livePath) {
+              // Emit the final, full file content (matching what runTool wrote to
+              // disk) rather than the last throttled partial, so the Code view
+              // doesn't drop the tail written in the last <450ms (issue #000053).
+              const finalContent =
+                found.name === 'write_file' && typeof found.args.content === 'string'
+                  ? cleanFileContent(found.args.content, livePath)
+                  : lastEmittedContent
               send('file:streaming', {
                 conversationId: req.conversationId,
                 path: livePath,
-                content: lastEmittedContent,
+                content: finalContent,
                 done: true
               })
             }
