@@ -22,12 +22,13 @@
     "setup:modules": "cd module/llm-tools && npm install && npm run build"
   },
   "dependencies": {
-    "llm-tools": "file:./module/llm-tools",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@huggingface/transformers": "^4.1.0",
+    "dompurify": "^3.4.10",
     "electron-updater": "^6.3.9",
     "highlight.js": "^11.11.1",
+    "llm-tools": "file:./module/llm-tools",
     "marked": "^15.0.7"
   },
   "devDependencies": {
@@ -40,6 +41,7 @@
     "electron": "^34.0.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

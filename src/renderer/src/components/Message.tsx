@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { marked } from 'marked'
 import type {
   AgentActivity,
   ChatMessage,
@@ -8,6 +7,7 @@ import type {
 } from '@shared/types'
 import gemmaLogoUrl from '../assets/gabie-smile.png'
 import { countMatches, highlightHtml } from '../lib/highlight'
+import { renderMarkdown } from '../lib/markdown'
 import { parseSkillInjection } from '../lib/skill-injection'
 
 interface Props {
@@ -90,14 +90,7 @@ function highlightText(
 export default function Message({ message, streaming, onRegenerate, searchQuery, matchOffset, activeMatchIndex }: Props) {
   const isUser = message.role === 'user'
   const parsed = useMemo(() => parseThinking(message.content), [message.content])
-  const html = useMemo(() => {
-    if (!parsed.visible) return ''
-    try {
-      return marked.parse(parsed.visible, { async: false, breaks: true }) as string
-    } catch {
-      return escapeHtml(parsed.visible).replace(/\n/g, '<br/>')
-    }
-  }, [parsed.visible])
+  const html = useMemo(() => renderMarkdown(parsed.visible), [parsed.visible])
 
   if (isUser) {
     const skillInjection = parseSkillInjection(message.content)
@@ -536,14 +529,6 @@ function ToolCallView({ call }: { call: ToolCall }) {
       )}
     </div>
   )
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 export function PermissionBanner({
